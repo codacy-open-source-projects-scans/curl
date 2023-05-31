@@ -1,0 +1,44 @@
+curl and libcurl 8.2.0
+
+ Public curl releases:         220
+ Command line options:         251
+ curl_easy_setopt() options:   302
+ Public functions in libcurl:  91
+ Contributors:                 2888
+
+This release includes the following changes:
+
+
+This release includes the following bugfixes:
+
+ o configure: fix run-compiler for old /bin/sh [4]
+ o circleci: install impacket & wolfssl 5.6.0 [1]
+ o tool_urlglob: use curl_off_t instead of longs [2]
+ o scripts: Fix GHA matrix job detection in cijobs.pl
+ o runtests: abort test run after failure without -a [3]
+
+This release includes the following known bugs:
+
+ o see docs/KNOWN_BUGS (https://curl.se/docs/knownbugs.html)
+
+Planned upcoming removals include:
+
+ o gskit
+ o NSS
+ o support for space-separated NOPROXY patterns
+ o support for the original legacy mingw version 1
+
+ See https://curl.se/dev/deprecate.html for details
+
+This release would not have looked like this without help, code, reports and
+advice from friends like these:
+
+  Alejandro R. Sedeño, Dan Fandrich, Daniel Stenberg, Philip Heiduck
+  (4 contributors)
+
+References to bug reports and discussions on issues:
+
+ [1] = https://curl.se/bug/?i=11221
+ [2] = https://curl.se/bug/?i=11224
+ [3] = https://curl.se/bug/?i=11225
+ [4] = https://curl.se/bug/?i=11228
