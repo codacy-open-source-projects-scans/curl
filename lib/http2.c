@@ -137,6 +137,7 @@ struct cf_h2_ctx {
 };
 
 /* How to access `call_data` from a cf_h2 filter */
+#undef CF_CTX_CALL_DATA
 #define CF_CTX_CALL_DATA(cf)  \
   ((struct cf_h2_ctx *)(cf)->ctx)->call_data
 
@@ -183,6 +184,7 @@ struct stream_ctx {
 
   int status_code; /* HTTP response status code */
   uint32_t error; /* stream error code */
+  uint32_t local_window_size; /* the local recv window size */
   bool closed; /* TRUE on stream close */
   bool reset;  /* TRUE on stream reset */
   bool close_handled; /* TRUE if stream closure is handled by libcurl */
@@ -252,6 +254,7 @@ static CURLcode http2_data_setup(struct Curl_cfilter *cf,
   stream->closed = FALSE;
   stream->close_handled = FALSE;
   stream->error = NGHTTP2_NO_ERROR;
+  stream->local_window_size = H2_STREAM_WINDOW_SIZE;
   stream->upload_left = 0;
 
   H2_STREAM_LCTX(data) = stream;
@@ -964,6 +967,7 @@ static CURLcode on_stream_frame(struct Curl_cfilter *cf,
   struct stream_ctx *stream = H2_STREAM_CTX(data);
   int32_t stream_id = frame->hd.stream_id;
   CURLcode result;
+  size_t rbuflen;
   int rv;
 
   if(!stream) {
@@ -973,10 +977,10 @@ static CURLcode on_stream_frame(struct Curl_cfilter *cf,
 
   switch(frame->hd.type) {
   case NGHTTP2_DATA:
+    rbuflen = Curl_bufq_len(&stream->recvbuf);
     DEBUGF(LOG_CF(data, cf, "[h2sid=%d] FRAME[DATA len=%zu pad=%zu], "
                   "buffered=%zu, window=%d/%d",
-                  stream_id, frame->hd.length, frame->data.padlen,
-                  Curl_bufq_len(&stream->recvbuf),
+                  stream_id, frame->hd.length, frame->data.padlen, rbuflen,
                   nghttp2_session_get_stream_effective_recv_data_length(
                     ctx->h2, stream->id),
                   nghttp2_session_get_stream_effective_local_window_size(
@@ -992,6 +996,20 @@ static CURLcode on_stream_frame(struct Curl_cfilter *cf,
     }
     if(frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
       drain_stream(cf, data, stream);
+    }
+    else if(rbuflen > stream->local_window_size) {
+      int32_t wsize = nghttp2_session_get_stream_local_window_size(
+                        ctx->h2, stream->id);
+      if(wsize > 0 && (uint32_t)wsize != stream->local_window_size) {
+        /* H2 flow control is not absolute, as the server might not have the
+         * same view, yet. When we recieve more than we want, we enforce
+         * the local window size again to make nghttp2 send WINDOW_UPATEs
+         * accordingly. */
+        nghttp2_session_set_local_window_size(ctx->h2,
+                                              NGHTTP2_FLAG_NONE,
+                                              stream->id,
+                                              stream->local_window_size);
+      }
     }
     break;
   case NGHTTP2_HEADERS:
@@ -1448,8 +1466,8 @@ static ssize_t req_body_read_callback(nghttp2_session *session,
   if(nread > 0 && stream->upload_left != -1)
     stream->upload_left -= nread;
 
-  DEBUGF(LOG_CF(data_s, cf, "[h2sid=%d] req_body_read(len=%zu) left=%zd"
-                " -> %zd, %d",
+  DEBUGF(LOG_CF(data_s, cf, "[h2sid=%d] req_body_read(len=%zu) left=%"
+                            CURL_FORMAT_CURL_OFF_T " -> %zd, %d",
                 stream_id, length, stream->upload_left, nread, result));
 
   if(stream->upload_left == 0)
@@ -1739,7 +1757,7 @@ static CURLcode h2_progress_ingress(struct Curl_cfilter *cf,
 
   /* Process network input buffer fist */
   if(!Curl_bufq_is_empty(&ctx->inbufq)) {
-    DEBUGF(LOG_CF(data, cf, "Process %zd bytes in connection buffer",
+    DEBUGF(LOG_CF(data, cf, "Process %zu bytes in connection buffer",
                   Curl_bufq_len(&ctx->inbufq)));
     if(h2_process_pending_input(cf, data, &result) < 0)
       return result;
@@ -1760,7 +1778,7 @@ static CURLcode h2_progress_ingress(struct Curl_cfilter *cf,
     }
 
     nread = Curl_bufq_slurp(&ctx->inbufq, nw_in_reader, cf, &result);
-    /* DEBUGF(LOG_CF(data, cf, "read %zd bytes nw data -> %zd, %d",
+    /* DEBUGF(LOG_CF(data, cf, "read %zu bytes nw data -> %zd, %d",
                   Curl_bufq_len(&ctx->inbufq), nread, result)); */
     if(nread < 0) {
       if(result != CURLE_AGAIN) {
@@ -1929,8 +1947,8 @@ static ssize_t h2_submit(struct stream_ctx **pstream,
 
   h2_pri_spec(data, &pri_spec);
 
-  DEBUGF(LOG_CF(data, cf, "send request allowed %d (easy handle %p)",
-                nghttp2_session_check_request_allowed(ctx->h2), (void *)data));
+  DEBUGF(LOG_CF(data, cf, "send request allowed %d",
+                nghttp2_session_check_request_allowed(ctx->h2)));
 
   switch(data->state.httpreq) {
   case HTTPREQ_POST:
@@ -1966,9 +1984,21 @@ static ssize_t h2_submit(struct stream_ctx **pstream,
 
   DEBUGF(LOG_CF(data, cf, "[h2sid=%d] cf_send(len=%zu) submit %s",
                 stream_id, len, data->state.url));
-  infof(data, "Using Stream ID: %u (easy handle %p)",
-        stream_id, (void *)data);
+  infof(data, "Using Stream ID: %u", stream_id);
   stream->id = stream_id;
+  stream->local_window_size = H2_STREAM_WINDOW_SIZE;
+  if(data->set.max_recv_speed) {
+    /* We are asked to only receive `max_recv_speed` bytes per second.
+     * Let's limit our stream window size around that, otherwise the server
+     * will send in large bursts only. We make the window 50% larger to
+     * allow for data in flight and avoid stalling. */
+    curl_off_t n = (((data->set.max_recv_speed - 1) / H2_CHUNK_SIZE) + 1);
+    n += CURLMAX((n/2), 1);
+    if(n < (H2_STREAM_WINDOW_SIZE / H2_CHUNK_SIZE) &&
+       n < (UINT_MAX / H2_CHUNK_SIZE)) {
+      stream->local_window_size = (uint32_t)n * H2_CHUNK_SIZE;
+    }
+  }
 
 out:
   DEBUGF(LOG_CF(data, cf, "[h2sid=%d] submit -> %zd, %d",
@@ -2104,6 +2134,7 @@ static ssize_t cf_h2_send(struct Curl_cfilter *cf, struct Curl_easy *data,
       }
       goto out;
     }
+
   }
 
 out:
@@ -2241,7 +2272,7 @@ static CURLcode http2_data_pause(struct Curl_cfilter *cf,
 
   DEBUGASSERT(data);
   if(ctx && ctx->h2 && stream) {
-    uint32_t window = !pause * H2_STREAM_WINDOW_SIZE;
+    uint32_t window = pause? 0 : stream->local_window_size;
     CURLcode result;
 
     int rv = nghttp2_session_set_local_window_size(ctx->h2,
@@ -2510,7 +2541,7 @@ CURLcode Curl_http2_switch(struct Curl_easy *data,
   CURLcode result;
 
   DEBUGASSERT(!Curl_conn_is_http2(data, conn, sockindex));
-  DEBUGF(infof(data, DMSGI(data, sockindex, "switching to HTTP/2")));
+  DEBUGF(infof(data, "switching to HTTP/2"));
 
   result = http2_cfilter_add(&cf, data, conn, sockindex);
   if(result)
@@ -2569,7 +2600,7 @@ CURLcode Curl_http2_upgrade(struct Curl_easy *data,
   CURLcode result;
 
   DEBUGASSERT(!Curl_conn_is_http2(data, conn, sockindex));
-  DEBUGF(infof(data, DMSGI(data, sockindex, "upgrading to HTTP/2")));
+  DEBUGF(infof(data, "upgrading to HTTP/2"));
   DEBUGASSERT(data->req.upgr101 == UPGR101_RECEIVED);
 
   result = http2_cfilter_add(&cf, data, conn, sockindex);

@@ -26,7 +26,6 @@
 #include "tool_setup.h"
 #include "tool_sdecls.h"
 #include "tool_urlglob.h"
-#include "tool_formparse.h"
 
 struct GlobalConfig;
 
@@ -260,7 +259,8 @@ struct OperationConfig {
   bool ssl_revoke_best_effort; /* ignore SSL revocation offline/missing
                                   revocation list errors */
 
-  bool native_ca_store;        /* use the native os ca store */
+  bool native_ca_store;        /* use the native OS CA store */
+  bool proxy_native_ca_store;  /* use the native OS CA store for proxy */
   bool ssl_auto_client_cert;   /* automatically locate and use a client
                                   certificate for authentication (Schannel) */
   bool proxy_ssl_auto_client_cert; /* proxy version of ssl_auto_client_cert */
@@ -278,6 +278,7 @@ struct OperationConfig {
   long happy_eyeballs_timeout_ms; /* happy eyeballs timeout in milliseconds.
                                      0 is valid. default: CURL_HET_DEFAULT. */
   bool haproxy_protocol;          /* whether to send HAProxy protocol v1 */
+  char *haproxy_clientip;         /* client IP for HAProxy protocol */
   bool disallow_username_in_url;  /* disallow usernames in URLs */
   char *aws_sigv4;
   enum {
@@ -307,6 +308,7 @@ struct GlobalConfig {
   bool trace_fopened;
   trace tracetype;
   bool tracetime;                 /* include timestamp? */
+  bool traceids;                  /* include xfer-/conn-id? */
   int progressmode;               /* CURL_PROGRESS_BAR / CURL_PROGRESS_STATS */
   char *libcurl;                  /* Output libcurl code to this file name */
   bool fail_early;                /* exit on first transfer error */
