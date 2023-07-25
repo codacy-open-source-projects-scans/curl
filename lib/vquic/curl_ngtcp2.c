@@ -1000,7 +1000,6 @@ static CURLcode check_and_set_expiry(struct Curl_cfilter *cf,
   struct cf_ngtcp2_ctx *ctx = cf->ctx;
   struct pkt_io_ctx local_pktx;
   ngtcp2_tstamp expiry;
-  ngtcp2_duration timeout;
 
   if(!pktx) {
     pktx_init(&local_pktx, cf, data);
@@ -1021,7 +1020,6 @@ static CURLcode check_and_set_expiry(struct Curl_cfilter *cf,
         ngtcp2_ccerr_set_liberr(&ctx->last_error, rv, NULL, 0);
         return CURLE_SEND_ERROR;
       }
-      timeout = 0;
       result = cf_progress_ingress(cf, data, pktx);
       if(result)
         return result;
@@ -1033,7 +1031,7 @@ static CURLcode check_and_set_expiry(struct Curl_cfilter *cf,
     }
 
     if(expiry > pktx->ts) {
-      timeout = expiry - pktx->ts;
+      ngtcp2_duration timeout = expiry - pktx->ts;
       if(timeout % NGTCP2_MILLISECONDS) {
         timeout += NGTCP2_MILLISECONDS;
       }
@@ -1837,6 +1835,8 @@ out:
     *err = result;
     sent = -1;
   }
+  DEBUGF(LOG_CF(data, cf, "[h3sid=%" PRId64 "] cf_send(len=%zu) -> %zd, %d",
+                stream? stream->id : -1, len, sent, *err));
   CF_DATA_RESTORE(cf, save);
   return sent;
 }

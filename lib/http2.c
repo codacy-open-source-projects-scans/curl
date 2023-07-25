@@ -252,7 +252,7 @@ static CURLcode http2_data_setup(struct Curl_cfilter *cf,
                   H2_STREAM_SEND_CHUNKS, BUFQ_OPT_NONE);
   Curl_bufq_initp(&stream->recvbuf, &ctx->stream_bufcp,
                   H2_STREAM_RECV_CHUNKS, BUFQ_OPT_SOFT_LIMIT);
-  Curl_dynhds_init(&stream->resp_trailers, 0, DYN_H2_TRAILERS);
+  Curl_dynhds_init(&stream->resp_trailers, 0, DYN_HTTP_REQUEST);
   stream->resp_hds_len = 0;
   stream->bodystarted = FALSE;
   stream->status_code = -1;
@@ -1121,6 +1121,21 @@ static int on_frame_recv(nghttp2_session *session, const nghttp2_frame *frame,
         DEBUGF(LOG_CF(data, cf, "MAX_CONCURRENT_STREAMS now %u",
                       ctx->max_concurrent_streams));
         multi_connchanged(data->multi);
+      }
+      /* Since the initial stream window is 64K, a request might be on HOLD,
+       * due to exhaustion. The (initial) SETTINGS may announce a much larger
+       * window and *assume* that we treat this like a WINDOW_UPDATE. Some
+       * servers send an explicit WINDOW_UPDATE, but not all seem to do that.
+       * To be safe, we UNHOLD a stream in order not to stall. */
+      if((data->req.keepon & KEEP_SEND_HOLD) &&
+         (data->req.keepon & KEEP_SEND)) {
+        struct stream_ctx *stream = H2_STREAM_CTX(data);
+        data->req.keepon &= ~KEEP_SEND_HOLD;
+        if(stream) {
+          drain_stream(cf, data, stream);
+          DEBUGF(LOG_CF(data, cf, "[h2sid=%d] un-holding after SETTINGS",
+                        stream_id));
+        }
       }
       break;
     }
@@ -2107,7 +2122,13 @@ static ssize_t cf_h2_send(struct Curl_cfilter *cf, struct Curl_easy *data,
   /* Call the nghttp2 send loop and flush to write ALL buffered data,
    * headers and/or request body completely out to the network */
   result = h2_progress_egress(cf, data);
-  if(result == CURLE_AGAIN) {
+  /* if the stream has been closed in egress handling (nghttp2 does that
+   * when it does not like the headers, for example */
+  if(stream && stream->closed) {
+    nwritten = http2_handle_stream_close(cf, data, stream, err);
+    goto out;
+  }
+  else if(result == CURLE_AGAIN) {
     blocked = 1;
   }
   else if(result) {
@@ -2115,14 +2136,14 @@ static ssize_t cf_h2_send(struct Curl_cfilter *cf, struct Curl_easy *data,
     nwritten = -1;
     goto out;
   }
-  else if(!Curl_bufq_is_empty(&stream->sendbuf)) {
+  else if(stream && !Curl_bufq_is_empty(&stream->sendbuf)) {
     /* although we wrote everything that nghttp2 wants to send now,
      * there is data left in our stream send buffer unwritten. This may
      * be due to the stream's HTTP/2 flow window being exhausted. */
     blocked = 1;
   }
 
-  if(blocked) {
+  if(stream && blocked) {
     /* Unable to send all data, due to connection blocked or H2 window
      * exhaustion. Data is left in our stream buffer, or nghttp2's internal
      * frame buffer or our network out buffer. */
