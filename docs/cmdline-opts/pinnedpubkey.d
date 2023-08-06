@@ -25,14 +25,14 @@ PEM/DER support:
 
 7.39.0: OpenSSL, GnuTLS and GSKit
 
-7.43.0: NSS and wolfSSL
+7.43.0: wolfSSL
 
-7.47.0: mbedtls
+7.47.0: mbedTLS
 
 sha256 support:
 
-7.44.0: OpenSSL, GnuTLS, NSS and wolfSSL
+7.44.0: OpenSSL, GnuTLS and wolfSSL
 
-7.47.0: mbedtls
+7.47.0: mbedTLS
 
 Other SSL backends not supported.

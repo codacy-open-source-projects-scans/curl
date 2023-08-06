@@ -50,7 +50,6 @@ LIB_VTLS_CFILES =           \
   vtls/keylog.c             \
   vtls/mbedtls.c            \
   vtls/mbedtls_threadlock.c \
-  vtls/nss.c                \
   vtls/openssl.c            \
   vtls/rustls.c             \
   vtls/schannel.c           \
@@ -68,7 +67,6 @@ LIB_VTLS_HFILES =           \
   vtls/keylog.h             \
   vtls/mbedtls.h            \
   vtls/mbedtls_threadlock.h \
-  vtls/nssg.h               \
   vtls/openssl.h            \
   vtls/rustls.h             \
   vtls/schannel.h           \
@@ -126,7 +124,6 @@ LIB_CFILES =         \
   curl_get_line.c    \
   curl_gethostname.c \
   curl_gssapi.c      \
-  curl_log.c         \
   curl_memrchr.c     \
   curl_multibyte.c   \
   curl_ntlm_core.c   \
@@ -137,6 +134,7 @@ LIB_CFILES =         \
   curl_sasl.c        \
   curl_sspi.c        \
   curl_threads.c     \
+  curl_trc.c         \
   dict.c             \
   doh.c              \
   dynbuf.c           \
@@ -262,7 +260,6 @@ LIB_HFILES =         \
   curl_hmac.h        \
   curl_krb5.h        \
   curl_ldap.h        \
-  curl_log.h         \
   curl_md4.h         \
   curl_md5.h         \
   curl_memory.h      \
@@ -280,6 +277,7 @@ LIB_HFILES =         \
   curl_sha256.h      \
   curl_sspi.h        \
   curl_threads.h     \
+  curl_trc.h         \
   curlx.h            \
   dict.h             \
   doh.h              \

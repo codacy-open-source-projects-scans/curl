@@ -266,7 +266,7 @@
 #define HAVE_OPENSSL_VERSION
 #endif
 
-#ifdef OPENSSL_IS_BORINGSSL
+#if defined(OPENSSL_IS_BORINGSSL) || defined(OPENSSL_IS_AWSLC)
 typedef uint32_t sslerr_t;
 #else
 typedef unsigned long sslerr_t;
@@ -722,8 +722,8 @@ static int bio_cf_out_write(BIO *bio, const char *buf, int blen)
 
   DEBUGASSERT(data);
   nwritten = Curl_conn_cf_send(cf->next, data, buf, blen, &result);
-  DEBUGF(LOG_CF(data, cf, "bio_cf_out_write(len=%d) -> %d, err=%d",
-                blen, (int)nwritten, result));
+  CURL_TRC_CF(data, cf, "bio_cf_out_write(len=%d) -> %d, err=%d",
+              blen, (int)nwritten, result);
   BIO_clear_retry_flags(bio);
   backend->io_result = result;
   if(nwritten < 0) {
@@ -749,8 +749,8 @@ static int bio_cf_in_read(BIO *bio, char *buf, int blen)
     return 0;
 
   nread = Curl_conn_cf_recv(cf->next, data, buf, blen, &result);
-  DEBUGF(LOG_CF(data, cf, "bio_cf_in_read(len=%d) -> %d, err=%d",
-                blen, (int)nread, result));
+  CURL_TRC_CF(data, cf, "bio_cf_in_read(len=%d) -> %d, err=%d",
+              blen, (int)nread, result);
   BIO_clear_retry_flags(bio);
   backend->io_result = result;
   if(nread < 0) {
@@ -994,20 +994,6 @@ static CURLcode ossl_seed(struct Curl_easy *data)
   RAND_load_file(RANDOM_FILE, RAND_LOAD_LENGTH);
   if(rand_enough())
     return CURLE_OK;
-#endif
-
-#if defined(HAVE_RAND_EGD) && defined(EGD_SOCKET)
-  /* available in OpenSSL 0.9.5 and later */
-  /* EGD_SOCKET is set at configure time or not at all */
-  {
-    /* If there's an option and a define, the option overrides the
-       define */
-    int ret = RAND_egd(EGD_SOCKET);
-    if(-1 != ret) {
-      if(rand_enough())
-        return CURLE_OK;
-    }
-  }
 #endif
 
   /* fallback to a custom seeding of the PRNG using a hash based on a current
@@ -2320,7 +2306,11 @@ static CURLcode verifystatus(struct Curl_cfilter *cf,
 {
   struct ssl_connect_data *connssl = cf->ctx;
   int i, ocsp_status;
+#if defined(OPENSSL_IS_AWSLC)
+  const uint8_t *status;
+#else
   unsigned char *status;
+#endif
   const unsigned char *p;
   CURLcode result = CURLE_OK;
   OCSP_RESPONSE *rsp = NULL;
@@ -2418,7 +2408,7 @@ static CURLcode verifystatus(struct Curl_cfilter *cf,
     goto end;
   }
 
-  for(i = 0; i < sk_X509_num(ch); i++) {
+  for(i = 0; i < (int)sk_X509_num(ch); i++) {
     X509 *issuer = sk_X509_value(ch, i);
     if(X509_check_issued(issuer, cert) == X509_V_OK) {
       id = OCSP_cert_to_id(EVP_sha1(), cert, issuer);
@@ -3864,7 +3854,13 @@ static CURLcode ossl_connect_step2(struct Curl_cfilter *cf,
       return CURLE_OK;
     }
 #endif
-    else if(backend->io_result == CURLE_AGAIN) {
+#ifdef SSL_ERROR_WANT_RETRY_VERIFY
+    if(SSL_ERROR_WANT_RETRY_VERIFY == detail) {
+      connssl->connecting_state = ssl_connect_2;
+      return CURLE_OK;
+    }
+#endif
+    if(backend->io_result == CURLE_AGAIN) {
       return CURLE_OK;
     }
     else {
