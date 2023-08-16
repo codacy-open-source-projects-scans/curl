@@ -49,7 +49,7 @@ The variables available are:
 .TP 15
 **certs**
 Output the certificate chain with details. Supported only by the OpenSSL,
-GnuTLS, Schannel, GSKit and Secure Transport backends. (Added in 7.88.0)
+GnuTLS, Schannel and Secure Transport backends. (Added in 7.88.0)
 .TP
 **content_type**
 The Content-Type of the requested document, if there was any.
@@ -105,7 +105,7 @@ The http method used in the most recent HTTP request. (Added in 7.72.0)
 .TP
 **num_certs**
 Number of server certificates received in the TLS handshake. Supported only by
-the OpenSSL, GnuTLS, Schannel, GSKit and Secure Transport backends. (Added
+the OpenSSL, GnuTLS, Schannel and Secure Transport backends. (Added
 in 7.88.0)
 .TP
 **num_connects**
@@ -207,9 +207,9 @@ started. time_redirect shows the complete execution time for multiple
 redirections. (Added in 7.12.3)
 .TP
 **time_starttransfer**
-The time, in seconds, it took from the start until the first byte was just
-about to be transferred. This includes time_pretransfer and also the time the
-server needed to calculate the result.
+The time, in seconds, it took from the start until the first byte is received.
+This includes time_pretransfer and also the time the server needed to calculate
+the result.
 .TP
 **time_total**
 The total time, in seconds, that the full operation lasted.
