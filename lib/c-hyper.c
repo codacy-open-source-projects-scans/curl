@@ -1208,6 +1208,7 @@ CURLcode Curl_http(struct Curl_easy *data, bool *done)
     result = CURLE_OUT_OF_MEMORY;
     goto error;
   }
+  req = NULL;
 
   if(HYPERE_OK != hyper_executor_push(h->exec, sendtask)) {
     failf(data, "Couldn't hyper_executor_push the send");
@@ -1216,6 +1217,7 @@ CURLcode Curl_http(struct Curl_easy *data, bool *done)
   }
 
   hyper_clientconn_free(client);
+  client = NULL;
 
   if((httpreq == HTTPREQ_GET) || (httpreq == HTTPREQ_HEAD)) {
     /* HTTP GET/HEAD download */
@@ -1228,8 +1230,8 @@ CURLcode Curl_http(struct Curl_easy *data, bool *done)
        the full request has been sent. */
     data->req.start100 = Curl_now();
 
-  /* clear userpwd and proxyuserpwd to avoid re-using old credentials
-   * from re-used connections */
+  /* clear userpwd and proxyuserpwd to avoid reusing old credentials
+   * from reused connections */
   Curl_safefree(data->state.aptr.userpwd);
   Curl_safefree(data->state.aptr.proxyuserpwd);
   return CURLE_OK;
@@ -1243,6 +1245,12 @@ error:
 
   if(handshake)
     hyper_task_free(handshake);
+
+  if(client)
+    hyper_clientconn_free(client);
+
+  if(req)
+    hyper_request_free(req);
 
   return result;
 }

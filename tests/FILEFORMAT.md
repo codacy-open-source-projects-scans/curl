@@ -101,8 +101,7 @@ like:
     Accept-Encoding: nothing
     %endif
 
-**Note** that there can be no nested conditions. You can only do one
-conditional at a time and you can only check for a single feature in it.
+Nested conditions are supported.
 
 # Variables
 
@@ -332,6 +331,7 @@ about to issue.
 
 - `auth_required` if this is set and a POST/PUT is made without auth, the
   server will NOT wait for the full request body to get sent
+- `delay: [msecs]` - delay this amount after connection
 - `idle` - do nothing after receiving the request, just "sit idle"
 - `stream` - continuously send data to the client, never-ending
 - `writedelay: [msecs]` delay this amount between reply packets
@@ -428,6 +428,7 @@ Features testable here are:
 - `ipv6`
 - `Kerberos`
 - `large_file`
+- `large-time` (time_t is larger than 32 bit)
 - `ld_preload`
 - `libssh2`
 - `libssh`
