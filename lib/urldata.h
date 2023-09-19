@@ -336,6 +336,7 @@ struct Curl_ssl_session {
 #include "curl_sspi.h"
 #endif
 
+#ifndef CURL_DISABLE_DIGEST_AUTH
 /* Struct used for Digest challenge-response authentication */
 struct digestdata {
 #if defined(USE_WINDOWS_SSPI)
@@ -359,6 +360,7 @@ struct digestdata {
   BIT(userhash);
 #endif
 };
+#endif
 
 typedef enum {
   NTLMSTATE_NONE,
@@ -638,7 +640,9 @@ struct SingleRequest {
   curl_off_t pendingheader;      /* this many bytes left to send is actually
                                     header and not body */
   struct curltime start;         /* transfer started at this time */
-  unsigned int headerbytecount;  /* only count received headers */
+  unsigned int headerbytecount;  /* received server headers (not CONNECT
+                                    headers) */
+  unsigned int allheadercount;   /* all received headers (server + CONNECT) */
   unsigned int deductheadercount; /* this amount of bytes doesn't count when
                                      we check if anything has been transferred
                                      at the end of a connection. We use this
@@ -1347,7 +1351,7 @@ struct UrlState {
   /* storage for the previous bag^H^H^HSIGPIPE signal handler :-) */
   void (*prev_signal)(int sig);
 #endif
-#ifndef CURL_DISABLE_CRYPTO_AUTH
+#ifndef CURL_DISABLE_DIGEST_AUTH
   struct digestdata digest;      /* state data for host Digest auth */
   struct digestdata proxydigest; /* state data for proxy Digest auth */
 #endif

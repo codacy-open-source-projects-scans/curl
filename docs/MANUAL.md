@@ -323,23 +323,22 @@ of the letter's ASCII code.
 
 Example:
 
-(page located at `http://www.formpost.com/getthis/`)
+(say if `http://example.com` had the following html)
 
 ```html
 <form action="post.cgi" method="post">
-<input name=user size=10>
-<input name=pass type=password size=10>
-<input name=id type=hidden value="blablabla">
-<input name=ding value="submit">
+  <input name=user size=10>
+  <input name=pass type=password size=10>
+  <input name=id type=hidden value="blablabla">
+  <input name=ding value="submit">
 </form>
 ```
 
 We want to enter user `foobar` with password `12345`.
 
-To post to this, you enter a curl command line like:
+To post to this, you would enter a curl command line like:
 
-    curl -d "user=foobar&pass=12345&id=blablabla&ding=submit"
-      http://www.formpost.com/getthis/post.cgi
+    curl -d "user=foobar&pass=12345&id=blablabla&ding=submit" http://example.com/post.cgi
 
 While `-d` uses the application/x-www-form-urlencoded mime-type, generally
 understood by CGI's and similar, curl also supports the more capable
@@ -796,7 +795,7 @@ such place might be: [RFC 2255, The LDAP URL
 Format](https://curl.se/rfc/rfc2255.txt)
 
 To show you an example, this is how to get all people from an LDAP server that
-has a certain sub-domain in their email address:
+has a certain subdomain in their email address:
 
     curl -B "ldap://ldap.frontec.se/o=frontec??sub?mail=*sth.frontec.se"
 
