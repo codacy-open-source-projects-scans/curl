@@ -830,9 +830,9 @@ static const unsigned char ecDsaSecp384r1SpkiHeader[] = {
 #endif /* SECTRANSP_PINNEDPUBKEY_V1 */
 #endif /* SECTRANSP_PINNEDPUBKEY */
 
-static OSStatus bio_cf_in_read(SSLConnectionRef connection,
-                               void *buf,
-                               size_t *dataLength)  /* IN/OUT */
+static OSStatus sectransp_bio_cf_in_read(SSLConnectionRef connection,
+                                         void *buf,
+                                         size_t *dataLength)  /* IN/OUT */
 {
   struct Curl_cfilter *cf = (struct Curl_cfilter *)connection;
   struct ssl_connect_data *connssl = cf->ctx;
@@ -870,9 +870,9 @@ static OSStatus bio_cf_in_read(SSLConnectionRef connection,
   return rtn;
 }
 
-static OSStatus bio_cf_out_write(SSLConnectionRef connection,
-                                 const void *buf,
-                                 size_t *dataLength)  /* IN/OUT */
+static OSStatus sectransp_bio_cf_out_write(SSLConnectionRef connection,
+                                           const void *buf,
+                                           size_t *dataLength)  /* IN/OUT */
 {
   struct Curl_cfilter *cf = (struct Curl_cfilter *)connection;
   struct ssl_connect_data *connssl = cf->ctx;
@@ -2100,7 +2100,9 @@ static CURLcode sectransp_connect_step1(struct Curl_cfilter *cf,
     }
   }
 
-  err = SSLSetIOFuncs(backend->ssl_ctx, bio_cf_in_read, bio_cf_out_write);
+  err = SSLSetIOFuncs(backend->ssl_ctx,
+                      sectransp_bio_cf_in_read,
+                      sectransp_bio_cf_out_write);
   if(err != noErr) {
     failf(data, "SSL: SSLSetIOFuncs() failed: OSStatus %d", err);
     return CURLE_SSL_CONNECT_ERROR;
@@ -3481,7 +3483,7 @@ const struct Curl_ssl Curl_ssl_sectransp = {
   Curl_none_cert_status_request,      /* cert_status_request */
   sectransp_connect,                  /* connect */
   sectransp_connect_nonblocking,      /* connect_nonblocking */
-  Curl_ssl_get_select_socks,          /* getsock */
+  Curl_ssl_adjust_pollset,            /* adjust_pollset */
   sectransp_get_internals,            /* get_internals */
   sectransp_close,                    /* close_one */
   Curl_none_close_all,                /* close_all */

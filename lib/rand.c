@@ -43,6 +43,7 @@ uint32_t arc4random(void);
 #include "sendf.h"
 #include "timeval.h"
 #include "rand.h"
+#include "escape.h"
 
 /* The last 3 #include files should be in this order */
 #include "curl_printf.h"
@@ -51,12 +52,7 @@ uint32_t arc4random(void);
 
 #ifdef WIN32
 
-#if defined(__MINGW32__) && !defined(__MINGW64_VERSION_MAJOR)
-#  define HAVE_MINGW_ORIGINAL
-#endif
-
-#if defined(_WIN32_WINNT) && _WIN32_WINNT >= 0x600 && \
-  !defined(HAVE_MINGW_ORIGINAL)
+#if defined(_WIN32_WINNT) && _WIN32_WINNT >= 0x600
 #  define HAVE_WIN_BCRYPTGENRANDOM
 #  include <bcrypt.h>
 #  ifdef _MSC_VER
@@ -236,9 +232,7 @@ CURLcode Curl_rand_hex(struct Curl_easy *data, unsigned char *rnd,
                        size_t num)
 {
   CURLcode result = CURLE_BAD_FUNCTION_ARGUMENT;
-  const char *hex = "0123456789abcdef";
   unsigned char buffer[128];
-  unsigned char *bufp = buffer;
   DEBUGASSERT(num > 1);
 
 #ifdef __clang_analyzer__
@@ -257,16 +251,7 @@ CURLcode Curl_rand_hex(struct Curl_easy *data, unsigned char *rnd,
   if(result)
     return result;
 
-  while(num) {
-    /* clang-tidy warns on this line without this comment: */
-    /* NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult) */
-    *rnd++ = hex[(*bufp & 0xF0)>>4];
-    *rnd++ = hex[*bufp & 0x0F];
-    bufp++;
-    num -= 2;
-  }
-  *rnd = 0;
-
+  Curl_hexencode(buffer, num/2, rnd, num + 1);
   return result;
 }
 

@@ -363,16 +363,18 @@ CURLcode Curl_close(struct Curl_easy **datap)
   /* Detach connection if any is left. This should not be normal, but can be
      the case for example with CONNECT_ONLY + recv/send (test 556) */
   Curl_detach_connection(data);
-  if(data->multi)
-    /* This handle is still part of a multi handle, take care of this first
-       and detach this handle from there. */
-    curl_multi_remove_handle(data->multi, data);
+  if(!data->state.internal) {
+    if(data->multi)
+      /* This handle is still part of a multi handle, take care of this first
+         and detach this handle from there. */
+      curl_multi_remove_handle(data->multi, data);
 
-  if(data->multi_easy) {
-    /* when curl_easy_perform() is used, it creates its own multi handle to
-       use and this is the one */
-    curl_multi_cleanup(data->multi_easy);
-    data->multi_easy = NULL;
+    if(data->multi_easy) {
+      /* when curl_easy_perform() is used, it creates its own multi handle to
+         use and this is the one */
+      curl_multi_cleanup(data->multi_easy);
+      data->multi_easy = NULL;
+    }
   }
 
   data->magic = 0; /* force a clear AFTER the possibly enforced removal from
@@ -1169,7 +1171,7 @@ ConnectionExists(struct Curl_easy *data,
         foundPendingCandidate = TRUE;
         /* Don't pick a connection that hasn't connected yet */
         infof(data, "Connection #%" CURL_FORMAT_CURL_OFF_T
-              "isn't open enough, can't reuse", check->connection_id);
+              " isn't open enough, can't reuse", check->connection_id);
         continue;
       }
 
@@ -2033,13 +2035,13 @@ void Curl_free_request_state(struct Curl_easy *data)
 {
   Curl_safefree(data->req.p.http);
   Curl_safefree(data->req.newurl);
-
 #ifndef CURL_DISABLE_DOH
   if(data->req.doh) {
     Curl_close(&data->req.doh->probe[0].easy);
     Curl_close(&data->req.doh->probe[1].easy);
   }
 #endif
+  Curl_client_cleanup(data);
 }
 
 
@@ -2076,7 +2078,6 @@ static char *detect_proxy(struct Curl_easy *data,
   char proxy_env[128];
   const char *protop = conn->handler->scheme;
   char *envp = proxy_env;
-  char *prox;
 #ifdef CURL_DISABLE_VERBOSE_STRINGS
   (void)data;
 #endif
@@ -2089,7 +2090,7 @@ static char *detect_proxy(struct Curl_easy *data,
   strcpy(envp, "_proxy");
 
   /* read the protocol proxy: */
-  prox = curl_getenv(proxy_env);
+  proxy = curl_getenv(proxy_env);
 
   /*
    * We don't try the uppercase version of HTTP_PROXY because of
@@ -2103,23 +2104,35 @@ static char *detect_proxy(struct Curl_easy *data,
    * This can cause 'internal' http/ftp requests to be
    * arbitrarily redirected by any external attacker.
    */
-  if(!prox && !strcasecompare("http_proxy", proxy_env)) {
+  if(!proxy && !strcasecompare("http_proxy", proxy_env)) {
     /* There was no lowercase variable, try the uppercase version: */
     Curl_strntoupper(proxy_env, proxy_env, sizeof(proxy_env));
-    prox = curl_getenv(proxy_env);
+    proxy = curl_getenv(proxy_env);
   }
 
   envp = proxy_env;
-  if(prox) {
-    proxy = prox; /* use this */
-  }
-  else {
-    envp = (char *)"all_proxy";
-    proxy = curl_getenv(envp); /* default proxy to use */
-    if(!proxy) {
-      envp = (char *)"ALL_PROXY";
-      proxy = curl_getenv(envp);
+  if(!proxy) {
+#ifdef USE_WEBSOCKETS
+    /* websocket proxy fallbacks */
+    if(strcasecompare("ws_proxy", proxy_env)) {
+      proxy = curl_getenv("http_proxy");
     }
+    else if(strcasecompare("wss_proxy", proxy_env)) {
+      proxy = curl_getenv("https_proxy");
+      if(!proxy)
+        proxy = curl_getenv("HTTPS_PROXY");
+    }
+    if(!proxy) {
+#endif
+      envp = (char *)"all_proxy";
+      proxy = curl_getenv(envp); /* default proxy to use */
+      if(!proxy) {
+        envp = (char *)"ALL_PROXY";
+        proxy = curl_getenv(envp);
+      }
+#ifdef USE_WEBSOCKETS
+    }
+#endif
   }
   if(proxy)
     infof(data, "Uses proxy env variable %s == '%s'", envp, proxy);
@@ -2719,7 +2732,9 @@ static CURLcode override_login(struct Curl_easy *data,
                           data->set.str[STRING_NETRC_FILE]);
     if(ret > 0) {
       infof(data, "Couldn't find host %s in the %s file; using defaults",
-            conn->host.name, data->set.str[STRING_NETRC_FILE]);
+            conn->host.name,
+            (data->set.str[STRING_NETRC_FILE] ?
+             data->set.str[STRING_NETRC_FILE] : ".netrc"));
     }
     else if(ret < 0) {
       failf(data, ".netrc parser error");

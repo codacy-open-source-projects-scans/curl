@@ -79,6 +79,8 @@
 #include <openssl/bio.h>
 #include <openssl/buffer.h>
 #include <openssl/pkcs12.h>
+#include <openssl/tls1.h>
+#include <openssl/evp.h>
 
 #if (OPENSSL_VERSION_NUMBER >= 0x0090808fL) && !defined(OPENSSL_NO_OCSP)
 #include <openssl/ocsp.h>
@@ -466,7 +468,9 @@ CURLcode Curl_ossl_certchain(struct Curl_easy *data, SSL *ssl)
 
       X509_get0_signature(&psig, &sigalg, x);
       if(sigalg) {
-        i2a_ASN1_OBJECT(mem, sigalg->algorithm);
+        const ASN1_OBJECT *sigalgoid = NULL;
+        X509_ALGOR_get0(&sigalgoid, NULL, NULL, sigalg);
+        i2a_ASN1_OBJECT(mem, sigalgoid);
         push_certinfo("Signature Algorithm", i);
       }
 
@@ -536,9 +540,9 @@ CURLcode Curl_ossl_certchain(struct Curl_easy *data, SSL *ssl)
 #else
           RSA_get0_key(rsa, &n, &e, NULL);
 #endif /* HAVE_EVP_PKEY_GET_PARAMS */
-          BIO_printf(mem, "%d", BN_num_bits(n));
+          BIO_printf(mem, "%d", n ? BN_num_bits(n) : 0);
 #else
-          BIO_printf(mem, "%d", BN_num_bits(rsa->n));
+          BIO_printf(mem, "%d", rsa->n ? BN_num_bits(rsa->n) : 0);
 #endif /* HAVE_OPAQUE_RSA_DSA_DH */
           push_certinfo("RSA Public Key", i);
           print_pubkey_BN(rsa, n, i);
@@ -661,7 +665,7 @@ CURLcode Curl_ossl_certchain(struct Curl_easy *data, SSL *ssl)
 #define BIO_set_shutdown(x,v)      ((x)->shutdown=(v))
 #endif /* USE_PRE_1_1_API */
 
-static int bio_cf_create(BIO *bio)
+static int ossl_bio_cf_create(BIO *bio)
 {
   BIO_set_shutdown(bio, 1);
   BIO_set_init(bio, 1);
@@ -672,14 +676,14 @@ static int bio_cf_create(BIO *bio)
   return 1;
 }
 
-static int bio_cf_destroy(BIO *bio)
+static int ossl_bio_cf_destroy(BIO *bio)
 {
   if(!bio)
     return 0;
   return 1;
 }
 
-static long bio_cf_ctrl(BIO *bio, int cmd, long num, void *ptr)
+static long ossl_bio_cf_ctrl(BIO *bio, int cmd, long num, void *ptr)
 {
   struct Curl_cfilter *cf = BIO_get_data(bio);
   long ret = 1;
@@ -713,7 +717,7 @@ static long bio_cf_ctrl(BIO *bio, int cmd, long num, void *ptr)
   return ret;
 }
 
-static int bio_cf_out_write(BIO *bio, const char *buf, int blen)
+static int ossl_bio_cf_out_write(BIO *bio, const char *buf, int blen)
 {
   struct Curl_cfilter *cf = BIO_get_data(bio);
   struct ssl_connect_data *connssl = cf->ctx;
@@ -725,7 +729,7 @@ static int bio_cf_out_write(BIO *bio, const char *buf, int blen)
 
   DEBUGASSERT(data);
   nwritten = Curl_conn_cf_send(cf->next, data, buf, blen, &result);
-  CURL_TRC_CF(data, cf, "bio_cf_out_write(len=%d) -> %d, err=%d",
+  CURL_TRC_CF(data, cf, "ossl_bio_cf_out_write(len=%d) -> %d, err=%d",
               blen, (int)nwritten, result);
   BIO_clear_retry_flags(bio);
   backend->io_result = result;
@@ -736,7 +740,7 @@ static int bio_cf_out_write(BIO *bio, const char *buf, int blen)
   return (int)nwritten;
 }
 
-static int bio_cf_in_read(BIO *bio, char *buf, int blen)
+static int ossl_bio_cf_in_read(BIO *bio, char *buf, int blen)
 {
   struct Curl_cfilter *cf = BIO_get_data(bio);
   struct ssl_connect_data *connssl = cf->ctx;
@@ -752,7 +756,7 @@ static int bio_cf_in_read(BIO *bio, char *buf, int blen)
     return 0;
 
   nread = Curl_conn_cf_recv(cf->next, data, buf, blen, &result);
-  CURL_TRC_CF(data, cf, "bio_cf_in_read(len=%d) -> %d, err=%d",
+  CURL_TRC_CF(data, cf, "ossl_bio_cf_in_read(len=%d) -> %d, err=%d",
               blen, (int)nread, result);
   BIO_clear_retry_flags(bio);
   backend->io_result = result;
@@ -777,42 +781,42 @@ static int bio_cf_in_read(BIO *bio, char *buf, int blen)
 
 #if USE_PRE_1_1_API
 
-static BIO_METHOD bio_cf_meth_1_0 = {
+static BIO_METHOD ossl_bio_cf_meth_1_0 = {
   BIO_TYPE_MEM,
   "OpenSSL CF BIO",
-  bio_cf_out_write,
-  bio_cf_in_read,
+  ossl_bio_cf_out_write,
+  ossl_bio_cf_in_read,
   NULL,                    /* puts is never called */
   NULL,                    /* gets is never called */
-  bio_cf_ctrl,
-  bio_cf_create,
-  bio_cf_destroy,
+  ossl_bio_cf_ctrl,
+  ossl_bio_cf_create,
+  ossl_bio_cf_destroy,
   NULL
 };
 
-static BIO_METHOD *bio_cf_method_create(void)
+static BIO_METHOD *ossl_bio_cf_method_create(void)
 {
-  return &bio_cf_meth_1_0;
+  return &ossl_bio_cf_meth_1_0;
 }
 
-#define bio_cf_method_free(m) Curl_nop_stmt
+#define ossl_bio_cf_method_free(m) Curl_nop_stmt
 
 #else
 
-static BIO_METHOD *bio_cf_method_create(void)
+static BIO_METHOD *ossl_bio_cf_method_create(void)
 {
   BIO_METHOD *m = BIO_meth_new(BIO_TYPE_MEM, "OpenSSL CF BIO");
   if(m) {
-    BIO_meth_set_write(m, &bio_cf_out_write);
-    BIO_meth_set_read(m, &bio_cf_in_read);
-    BIO_meth_set_ctrl(m, &bio_cf_ctrl);
-    BIO_meth_set_create(m, &bio_cf_create);
-    BIO_meth_set_destroy(m, &bio_cf_destroy);
+    BIO_meth_set_write(m, &ossl_bio_cf_out_write);
+    BIO_meth_set_read(m, &ossl_bio_cf_in_read);
+    BIO_meth_set_ctrl(m, &ossl_bio_cf_ctrl);
+    BIO_meth_set_create(m, &ossl_bio_cf_create);
+    BIO_meth_set_destroy(m, &ossl_bio_cf_destroy);
   }
   return m;
 }
 
-static void bio_cf_method_free(BIO_METHOD *m)
+static void ossl_bio_cf_method_free(BIO_METHOD *m)
 {
   if(m)
     BIO_meth_free(m);
@@ -1551,11 +1555,9 @@ fail:
         UI_method_set_closer(ui_method, UI_method_get_closer(UI_OpenSSL()));
         UI_method_set_reader(ui_method, ssl_ui_reader);
         UI_method_set_writer(ui_method, ssl_ui_writer);
-        /* the typecast below was added to please mingw32 */
-        priv_key = (EVP_PKEY *)
-          ENGINE_load_private_key(data->state.engine, key_file,
-                                  ui_method,
-                                  key_passwd);
+        priv_key = ENGINE_load_private_key(data->state.engine, key_file,
+                                           ui_method,
+                                           key_passwd);
         UI_destroy_method(ui_method);
         if(!priv_key) {
           failf(data, "failed to load private key from crypto engine");
@@ -1878,15 +1880,45 @@ static void ossl_close(struct Curl_cfilter *cf, struct Curl_easy *data)
 
   if(backend->handle) {
     if(cf->next && cf->next->connected) {
-      char buf[32];
+      char buf[1024];
+      int nread, err;
+      long sslerr;
+
       /* Maybe the server has already sent a close notify alert.
          Read it to avoid an RST on the TCP connection. */
       (void)SSL_read(backend->handle, buf, (int)sizeof(buf));
-
-      (void)SSL_shutdown(backend->handle);
+      ERR_clear_error();
+      if(SSL_shutdown(backend->handle) == 1) {
+        CURL_TRC_CF(data, cf, "SSL shutdown finished");
+      }
+      else {
+        nread = SSL_read(backend->handle, buf, (int)sizeof(buf));
+        err = SSL_get_error(backend->handle, nread);
+        switch(err) {
+        case SSL_ERROR_NONE: /* this is not an error */
+        case SSL_ERROR_ZERO_RETURN: /* no more data */
+          CURL_TRC_CF(data, cf, "SSL shutdown, EOF from server");
+          break;
+        case SSL_ERROR_WANT_READ:
+          /* SSL has send its notify and now wants to read the reply
+           * from the server. We are not really interested in that. */
+          CURL_TRC_CF(data, cf, "SSL shutdown sent");
+          break;
+        case SSL_ERROR_WANT_WRITE:
+          CURL_TRC_CF(data, cf, "SSL shutdown send blocked");
+          break;
+        default:
+          sslerr = ERR_get_error();
+          CURL_TRC_CF(data, cf, "SSL shutdown, error: '%s', errno %d",
+                      (sslerr ?
+                       ossl_strerror(sslerr, buf, sizeof(buf)) :
+                       SSL_ERROR_to_str(err)),
+                      SOCKERRNO);
+          break;
+        }
+      }
 
       ERR_clear_error();
-
       SSL_set_connect_state(backend->handle);
     }
 
@@ -1899,7 +1931,7 @@ static void ossl_close(struct Curl_cfilter *cf, struct Curl_easy *data)
     backend->x509_store_setup = FALSE;
   }
   if(backend->bio_method) {
-    bio_cf_method_free(backend->bio_method);
+    ossl_bio_cf_method_free(backend->bio_method);
     backend->bio_method = NULL;
   }
 }
@@ -3789,7 +3821,7 @@ static CURLcode ossl_connect_step1(struct Curl_cfilter *cf,
     Curl_ssl_sessionid_unlock(data);
   }
 
-  backend->bio_method = bio_cf_method_create();
+  backend->bio_method = ossl_bio_cf_method_create();
   if(!backend->bio_method)
     return CURLE_OUT_OF_MEMORY;
   bio = BIO_new(backend->bio_method);
@@ -3956,13 +3988,28 @@ static CURLcode ossl_connect_step2(struct Curl_cfilter *cf,
     }
   }
   else {
+    int psigtype_nid = NID_undef;
+    const char *negotiated_group_name = NULL;
+
     /* we connected fine, we're not waiting for anything else. */
     connssl->connecting_state = ssl_connect_3;
 
+#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
+    SSL_get_peer_signature_type_nid(backend->handle, &psigtype_nid);
+#if (OPENSSL_VERSION_NUMBER >= 0x30200000L)
+    negotiated_group_name = SSL_get0_group_name(backend->handle);
+#else
+    negotiated_group_name =
+      OBJ_nid2sn(SSL_get_negotiated_group(backend->handle) & 0x0000FFFF);
+#endif
+#endif
+
     /* Informational message */
-    infof(data, "SSL connection using %s / %s",
+    infof(data, "SSL connection using %s / %s / %s / %s",
           SSL_get_version(backend->handle),
-          SSL_get_cipher(backend->handle));
+          SSL_get_cipher(backend->handle),
+          negotiated_group_name == NULL ? NULL : negotiated_group_name,
+          OBJ_nid2sn(psigtype_nid));
 
 #ifdef HAS_ALPN
     /* Sets data and len to negotiated protocol, len is 0 if no protocol was
@@ -4038,6 +4085,60 @@ static CURLcode ossl_pkp_pin_peer_pubkey(struct Curl_easy *data, X509* cert,
 
   return result;
 }
+#if (OPENSSL_VERSION_NUMBER >= 0x30000000L) &&  \
+  !defined(CURL_DISABLE_VERBOSE_STRINGS)
+static void infof_certstack(struct Curl_easy *data, const SSL *ssl)
+{
+  STACK_OF(X509) *certstack;
+  long verify_result;
+  int num_cert_levels;
+  int cert_level;
+
+  verify_result = SSL_get_verify_result(ssl);
+  if(verify_result != X509_V_OK)
+    certstack = SSL_get_peer_cert_chain(ssl);
+  else
+    certstack = SSL_get0_verified_chain(ssl);
+  num_cert_levels = sk_X509_num(certstack);
+  OpenSSL_add_all_algorithms();
+  OpenSSL_add_all_digests();
+
+  for(cert_level = 0; cert_level < num_cert_levels; cert_level++) {
+    char cert_algorithm[80] = "";
+    char group_name[80] = "";
+    char group_name_final[80] = "";
+    const X509_ALGOR *palg_cert = NULL;
+    const ASN1_OBJECT *paobj_cert = NULL;
+    X509 *current_cert;
+    EVP_PKEY *current_pkey;
+    int key_bits;
+    int key_sec_bits;
+    int get_group_name;
+
+    current_cert = sk_X509_value(certstack, cert_level);
+
+    X509_get0_signature(NULL, &palg_cert, current_cert);
+    X509_ALGOR_get0(&paobj_cert, NULL, NULL, palg_cert);
+    OBJ_obj2txt(cert_algorithm, sizeof(cert_algorithm), paobj_cert, 0);
+
+    current_pkey = X509_get0_pubkey(current_cert);
+    key_bits = EVP_PKEY_bits(current_pkey);
+    key_sec_bits = EVP_PKEY_get_security_bits(current_pkey);
+    get_group_name = EVP_PKEY_get_group_name(current_pkey, group_name,
+                                             sizeof(group_name), NULL);
+    msnprintf(group_name_final, sizeof(group_name_final), "/%s", group_name);
+
+    infof(data,
+          "  Certificate level %d: "
+          "Public key type %s%s (%d/%d Bits/secBits), signed using %s",
+          cert_level, EVP_PKEY_get0_type_name(current_pkey),
+          get_group_name == 0 ? "" : group_name_final,
+          key_bits, key_sec_bits, cert_algorithm);
+  }
+}
+#else
+#define infof_certstack(data, ssl)
+#endif
 
 /*
  * Get the server cert, verify it and show it, etc., only call failf() if the
@@ -4227,6 +4328,8 @@ static CURLcode servercert(struct Curl_cfilter *cf,
     else
       infof(data, " SSL certificate verify ok.");
   }
+
+  infof_certstack(data, backend->handle);
 
 #if (OPENSSL_VERSION_NUMBER >= 0x0090808fL) && !defined(OPENSSL_NO_TLSEXT) && \
   !defined(OPENSSL_NO_OCSP)
@@ -4812,7 +4915,7 @@ const struct Curl_ssl Curl_ssl_openssl = {
   ossl_cert_status_request, /* cert_status_request */
   ossl_connect,             /* connect */
   ossl_connect_nonblocking, /* connect_nonblocking */
-  Curl_ssl_get_select_socks,/* getsock */
+  Curl_ssl_adjust_pollset,  /* adjust_pollset */
   ossl_get_internals,       /* get_internals */
   ossl_close,               /* close_one */
   ossl_close_all,           /* close_all */
