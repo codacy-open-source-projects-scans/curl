@@ -188,9 +188,6 @@ static CURLcode baller_connected(struct Curl_cfilter *cf,
 #endif
     infof(data, "using HTTP/2");
     break;
-  case CURL_HTTP_VERSION_1_1:
-    infof(data, "using HTTP/1.1");
-    break;
   default:
     infof(data, "using HTTP/1.x");
     break;
@@ -458,7 +455,7 @@ static CURLcode cf_hc_create(struct Curl_cfilter **pcf,
   CURLcode result = CURLE_OK;
 
   (void)data;
-  ctx = calloc(sizeof(*ctx), 1);
+  ctx = calloc(1, sizeof(*ctx));
   if(!ctx) {
     result = CURLE_OUT_OF_MEMORY;
     goto out;
