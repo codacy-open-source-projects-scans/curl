@@ -837,8 +837,10 @@ static CURLcode dupset(struct Curl_easy *dst, struct Curl_easy *src)
   dst->set = src->set;
   Curl_mime_initpart(&dst->set.mimepost);
 
-  /* clear all string pointers first */
+  /* clear all dest string and blob pointers first, in case we error out
+     mid-function */
   memset(dst->set.str, 0, STRING_LAST * sizeof(char *));
+  memset(dst->set.blobs, 0, BLOB_LAST * sizeof(struct curl_blob *));
 
   /* duplicate all strings */
   for(i = (enum dupstring)0; i< STRING_LASTZEROTERMINATED; i++) {
@@ -847,8 +849,6 @@ static CURLcode dupset(struct Curl_easy *dst, struct Curl_easy *src)
       return result;
   }
 
-  /* clear all blob pointers first */
-  memset(dst->set.blobs, 0, BLOB_LAST * sizeof(struct curl_blob *));
   /* duplicate all blobs */
   for(j = (enum dupblob)0; j < BLOB_LAST; j++) {
     result = Curl_setblobopt(&dst->set.blobs[j], src->set.blobs[j]);
@@ -914,6 +914,7 @@ struct Curl_easy *curl_easy_duphandle(struct Curl_easy *data)
   outcurl->progress.callback = data->progress.callback;
 
 #ifndef CURL_DISABLE_COOKIES
+  outcurl->state.cookielist = NULL;
   if(data->cookies && data->state.cookie_engine) {
     /* If cookies are enabled in the parent handle, we enable them
        in the clone as well! */
@@ -923,9 +924,9 @@ struct Curl_easy *curl_easy_duphandle(struct Curl_easy *data)
       goto fail;
   }
 
-  if(data->set.cookielist) {
-    outcurl->set.cookielist = Curl_slist_duplicate(data->set.cookielist);
-    if(!outcurl->set.cookielist)
+  if(data->state.cookielist) {
+    outcurl->state.cookielist = Curl_slist_duplicate(data->state.cookielist);
+    if(!outcurl->state.cookielist)
       goto fail;
   }
 #endif
@@ -984,13 +985,10 @@ fail:
 
   if(outcurl) {
 #ifndef CURL_DISABLE_COOKIES
-    curl_slist_free_all(outcurl->set.cookielist);
-    outcurl->set.cookielist = NULL;
+    free(outcurl->cookies);
 #endif
-    Curl_safefree(outcurl->state.buffer);
+    free(outcurl->state.buffer);
     Curl_dyn_free(&outcurl->state.headerb);
-    Curl_safefree(outcurl->state.url);
-    Curl_safefree(outcurl->state.referer);
     Curl_altsvc_cleanup(&outcurl->asi);
     Curl_hsts_cleanup(&outcurl->hsts);
     Curl_freeset(outcurl);

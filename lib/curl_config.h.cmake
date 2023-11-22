@@ -80,6 +80,9 @@
 /* disables GOPHER */
 #cmakedefine CURL_DISABLE_GOPHER 1
 
+/* disables headers-api support */
+#cmakedefine CURL_DISABLE_HEADERS_API 1
+
 /* disables HSTS support */
 #cmakedefine CURL_DISABLE_HSTS 1
 
@@ -100,6 +103,9 @@
 
 /* disables MIME support */
 #cmakedefine CURL_DISABLE_MIME 1
+
+/* disables local binding support */
+#cmakedefine CURL_DISABLE_BINDLOCAL 1
 
 /* disables MQTT */
 #cmakedefine CURL_DISABLE_MQTT 1

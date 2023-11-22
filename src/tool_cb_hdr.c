@@ -42,8 +42,8 @@
 static char *parse_filename(const char *ptr, size_t len);
 
 #ifdef WIN32
-#define BOLD
-#define BOLDOFF
+#define BOLD "\x1b[1m"
+#define BOLDOFF "\x1b[22m"
 #else
 #define BOLD "\x1b[1m"
 /* Switch off bold by setting "all attributes off" since the explicit
@@ -150,16 +150,19 @@ size_t tool_header_cb(char *ptr, size_t size, size_t nmemb, void *userdata)
       char *filename;
       size_t len;
 
-      while(*p && (p < end) && !ISALPHA(*p))
+      while((p < end) && *p && !ISALPHA(*p))
         p++;
       if(p > end - 9)
         break;
 
       if(memcmp(p, "filename=", 9)) {
         /* no match, find next parameter */
-        while((p < end) && (*p != ';'))
+        while((p < end) && *p && (*p != ';'))
           p++;
-        continue;
+        if((p < end) && *p)
+          continue;
+        else
+          break;
       }
       p += 9;
 
@@ -209,7 +212,11 @@ size_t tool_header_cb(char *ptr, size_t size, size_t nmemb, void *userdata)
     if(!outs->stream && !tool_create_output_file(outs, per->config))
       return CURL_WRITEFUNC_ERROR;
 
-    if(hdrcbdata->global->isatty && hdrcbdata->global->styled_output)
+    if(hdrcbdata->global->isatty &&
+#ifdef WIN32
+       tool_term_has_bold &&
+#endif
+       hdrcbdata->global->styled_output)
       value = memchr(ptr, ':', cb);
     if(value) {
       size_t namelen = value - ptr;

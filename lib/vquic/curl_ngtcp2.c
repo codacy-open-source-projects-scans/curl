@@ -133,6 +133,7 @@ void Curl_ngtcp2_ver(char *p, size_t len)
 
 struct cf_ngtcp2_ctx {
   struct cf_quic_ctx q;
+  struct ssl_peer peer;
   ngtcp2_path connected_path;
   ngtcp2_conn *qconn;
   ngtcp2_cid dcid;
@@ -237,11 +238,20 @@ static CURLcode h3_data_setup(struct Curl_cfilter *cf,
 
 static void h3_data_done(struct Curl_cfilter *cf, struct Curl_easy *data)
 {
+  struct cf_ngtcp2_ctx *ctx = cf->ctx;
   struct h3_stream_ctx *stream = H3_STREAM_CTX(data);
 
   (void)cf;
   if(stream) {
     CURL_TRC_CF(data, cf, "[%"PRId64"] easy handle is done", stream->id);
+    if(ctx->h3conn && !stream->closed) {
+      nghttp3_conn_shutdown_stream_read(ctx->h3conn, stream->id);
+      nghttp3_conn_close_stream(ctx->h3conn, stream->id,
+                                NGHTTP3_H3_REQUEST_CANCELLED);
+      nghttp3_conn_set_stream_user_data(ctx->h3conn, stream->id, NULL);
+      stream->closed = TRUE;
+    }
+
     Curl_bufq_free(&stream->sendbuf);
     Curl_bufq_free(&stream->recvbuf);
     Curl_h1_req_parse_free(&stream->h1);
@@ -561,7 +571,6 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
   struct cf_ngtcp2_ctx *ctx = cf->ctx;
   const uint8_t *alpn = NULL;
   size_t alpnlen = 0;
-  unsigned char checkip[16];
 
   DEBUGASSERT(!ctx->ssl);
   ctx->ssl = SSL_new(ctx->sslctx);
@@ -576,13 +585,8 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
     SSL_set_alpn_protos(ctx->ssl, alpn, (int)alpnlen);
 
   /* set SNI */
-  if((0 == Curl_inet_pton(AF_INET, cf->conn->host.name, checkip))
-#ifdef ENABLE_IPV6
-     && (0 == Curl_inet_pton(AF_INET6, cf->conn->host.name, checkip))
-#endif
-     ) {
-    char *snihost = Curl_ssl_snihost(data, cf->conn->host.name, NULL);
-    if(!snihost || !SSL_set_tlsext_host_name(ctx->ssl, snihost)) {
+  if(ctx->peer.sni) {
+    if(!SSL_set_tlsext_host_name(ctx->ssl, ctx->peer.sni)) {
       failf(data, "Failed set SNI");
       SSL_free(ctx->ssl);
       ctx->ssl = NULL;
@@ -600,7 +604,6 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
   CURLcode result;
   gnutls_datum_t alpn[2];
   /* this will need some attention when HTTPS proxy over QUIC get fixed */
-  const char * const hostname = cf->conn->host.name;
   long * const pverifyresult = &data->set.ssl.certverifyresult;
   int rc;
 
@@ -614,7 +617,7 @@ static CURLcode quic_init_ssl(struct Curl_cfilter *cf,
     return CURLE_OUT_OF_MEMORY;
 
   result = gtls_client_init(data, conn_config, &data->set.ssl,
-                            hostname, ctx->gtls, pverifyresult);
+                            &ctx->peer, ctx->gtls, pverifyresult);
   if(result)
     return result;
 
@@ -1932,18 +1935,10 @@ static CURLcode qng_verify_peer(struct Curl_cfilter *cf,
   struct cf_ngtcp2_ctx *ctx = cf->ctx;
   struct ssl_primary_config *conn_config;
   CURLcode result = CURLE_OK;
-  const char *hostname, *disp_hostname;
-  int port;
-  char *snihost;
 
   conn_config = Curl_ssl_cf_get_primary_config(cf);
   if(!conn_config)
     return CURLE_FAILED_INIT;
-
-  Curl_conn_get_host(data, cf->sockindex, &hostname, &disp_hostname, &port);
-  snihost = Curl_ssl_snihost(data, hostname, NULL);
-  if(!snihost)
-    return CURLE_PEER_FAILED_VERIFICATION;
 
   cf->conn->bits.multiplex = TRUE; /* at least potentially multiplexed */
   cf->conn->httpversion = 30;
@@ -1956,19 +1951,19 @@ static CURLcode qng_verify_peer(struct Curl_cfilter *cf,
     if(!server_cert) {
       return CURLE_PEER_FAILED_VERIFICATION;
     }
-    result = Curl_ossl_verifyhost(data, cf->conn, server_cert);
+    result = Curl_ossl_verifyhost(data, cf->conn, &ctx->peer, server_cert);
     X509_free(server_cert);
     if(result)
       return result;
 #elif defined(USE_GNUTLS)
     result = Curl_gtls_verifyserver(data, ctx->gtls->session,
-                                    conn_config, &data->set.ssl,
-                                    hostname, disp_hostname,
+                                    conn_config, &data->set.ssl, &ctx->peer,
                                     data->set.str[STRING_SSL_PINNEDPUBLICKEY]);
     if(result)
       return result;
 #elif defined(USE_WOLFSSL)
-    if(wolfSSL_check_domain_name(ctx->ssl, snihost) == SSL_FAILURE)
+    if(!ctx->peer.sni ||
+       wolfSSL_check_domain_name(ctx->ssl, ctx->peer.sni) == SSL_FAILURE)
       return CURLE_PEER_FAILED_VERIFICATION;
 #endif
     infof(data, "Verified certificate just fine");
@@ -2337,10 +2332,12 @@ static CURLcode cf_ngtcp2_data_event(struct Curl_cfilter *cf,
   case CF_CTRL_DATA_PAUSE:
     result = h3_data_pause(cf, data, (arg1 != 0));
     break;
-  case CF_CTRL_DATA_DONE: {
+  case CF_CTRL_DATA_DETACH:
     h3_data_done(cf, data);
     break;
-  }
+  case CF_CTRL_DATA_DONE:
+    h3_data_done(cf, data);
+    break;
   case CF_CTRL_DATA_DONE_SEND: {
     struct h3_stream_ctx *stream = H3_STREAM_CTX(data);
     if(stream && !stream->send_closed) {
@@ -2399,6 +2396,7 @@ static void cf_ngtcp2_ctx_clear(struct cf_ngtcp2_ctx *ctx)
   if(ctx->qconn)
     ngtcp2_conn_del(ctx->qconn);
   Curl_bufcp_free(&ctx->stream_bufcp);
+  Curl_ssl_peer_cleanup(&ctx->peer);
 
   memset(ctx, 0, sizeof(*ctx));
   ctx->qlogfd = -1;
@@ -2469,6 +2467,10 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
   ctx->max_idle_ms = CURL_QUIC_MAX_IDLE_MS;
   Curl_bufcp_init(&ctx->stream_bufcp, H3_STREAM_CHUNK_SIZE,
                   H3_STREAM_POOL_SPARES);
+
+  result = Curl_ssl_peer_init(&ctx->peer, cf);
+  if(result)
+    return result;
 
 #ifdef USE_OPENSSL
   result = quic_ssl_ctx(&ctx->sslctx, cf, data);

@@ -534,10 +534,6 @@
 
 #  define DIR_CHAR      "/"
 
-#  ifndef fileno /* sunos 4 have this as a macro! */
-     int fileno(FILE *stream);
-#  endif
-
 #endif /* WIN32 */
 
 /* ---------------------------------------------------------------- */
@@ -646,6 +642,18 @@
 #else
 #  define UNUSED_PARAM /* NOTHING */
 #  define WARN_UNUSED_RESULT
+#endif
+
+/* noreturn attribute */
+
+#if !defined(CURL_NORETURN)
+#if (defined(__GNUC__) && (__GNUC__ >= 3)) || defined(__clang__)
+#  define CURL_NORETURN  __attribute__((__noreturn__))
+#elif defined(_MSC_VER) && (_MSC_VER >= 1200)
+#  define CURL_NORETURN  __declspec(noreturn)
+#else
+#  define CURL_NORETURN
+#endif
 #endif
 
 /*
@@ -761,7 +769,8 @@ int getpwuid_r(uid_t uid, struct passwd *pwd, char *buf,
 #define UNITTEST static
 #endif
 
-#if defined(USE_NGHTTP2) || defined(USE_HYPER)
+/* Hyper supports HTTP2 also, but Curl's integration with Hyper does not */
+#if defined(USE_NGHTTP2)
 #define USE_HTTP2
 #endif
 

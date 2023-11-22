@@ -756,18 +756,18 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
         return CURLE_BAD_FUNCTION_ARGUMENT;
       /* append the cookie file name to the list of file names, and deal with
          them later */
-      cl = curl_slist_append(data->set.cookielist, argptr);
+      cl = curl_slist_append(data->state.cookielist, argptr);
       if(!cl) {
-        curl_slist_free_all(data->set.cookielist);
-        data->set.cookielist = NULL;
+        curl_slist_free_all(data->state.cookielist);
+        data->state.cookielist = NULL;
         return CURLE_OUT_OF_MEMORY;
       }
-      data->set.cookielist = cl; /* store the list for later use */
+      data->state.cookielist = cl; /* store the list for later use */
     }
     else {
       /* clear the list of cookie files */
-      curl_slist_free_all(data->set.cookielist);
-      data->set.cookielist = NULL;
+      curl_slist_free_all(data->state.cookielist);
+      data->state.cookielist = NULL;
 
       if(!data->share || !data->share->cookies) {
         /* throw away all existing cookies if this isn't a shared cookie
@@ -2089,14 +2089,14 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
      * Specify entire PEM of the CA certificate
      */
 #ifdef USE_SSL
-    if(Curl_ssl_supports(data, SSLSUPP_CAINFO_BLOB))
+    if(Curl_ssl_supports(data, SSLSUPP_CAINFO_BLOB)) {
       result = Curl_setblobopt(&data->set.blobs[BLOB_CAINFO],
                                va_arg(param, struct curl_blob *));
+      break;
+    }
     else
 #endif
       return CURLE_NOT_BUILT_IN;
-
-    break;
 #ifndef CURL_DISABLE_PROXY
   case CURLOPT_PROXY_CAINFO:
     /*
@@ -2112,13 +2112,14 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
      * Specify entire PEM of the CA certificate
      */
 #ifdef USE_SSL
-    if(Curl_ssl_supports(data, SSLSUPP_CAINFO_BLOB))
+    if(Curl_ssl_supports(data, SSLSUPP_CAINFO_BLOB)) {
       result = Curl_setblobopt(&data->set.blobs[BLOB_CAINFO_PROXY],
                                va_arg(param, struct curl_blob *));
+      break;
+    }
     else
 #endif
       return CURLE_NOT_BUILT_IN;
-    break;
 #endif
   case CURLOPT_CAPATH:
     /*
