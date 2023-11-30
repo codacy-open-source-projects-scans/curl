@@ -1,5 +1,3 @@
-#ifndef HEADER_CURL_TFTP_H
-#define HEADER_CURL_TFTP_H
 /***************************************************************************
  *                                  _   _ ____  _
  *  Project                     ___| | | |  _ \| |
@@ -23,11 +21,33 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#ifndef CURL_DISABLE_TFTP
-extern const struct Curl_handler Curl_handler_tftp;
+#include "test.h"
 
-#define TFTP_BLKSIZE_MIN 8
-#define TFTP_BLKSIZE_MAX 65464
-#endif
+int test(char *URL)
+{
+  CURL *eh = NULL;
+  int res = 0;
+  struct curl_httppost *lastptr = NULL;
+  struct curl_httppost *m_formpost = NULL;
 
-#endif /* HEADER_CURL_TFTP_H */
+  global_init(CURL_GLOBAL_ALL);
+
+  easy_init(eh);
+
+  easy_setopt(eh, CURLOPT_URL, URL);
+  curl_formadd(&m_formpost, &lastptr, CURLFORM_COPYNAME, "file",
+               CURLFORM_FILE, "missing-file", CURLFORM_END);
+  curl_easy_setopt(eh, CURLOPT_HTTPPOST, m_formpost);
+
+  (void)curl_easy_perform(eh);
+  (void)curl_easy_perform(eh);
+
+test_cleanup:
+
+  curl_formfree(m_formpost);
+
+  curl_easy_cleanup(eh);
+  curl_global_cleanup();
+
+  return res;
+}

@@ -178,8 +178,6 @@
 
 #if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
 #define HAVE_EVP_PKEY_GET_PARAMS 1
-#else
-#define SSL_get1_peer_certificate SSL_get_peer_certificate
 #endif
 
 #ifdef HAVE_EVP_PKEY_GET_PARAMS
@@ -3798,6 +3796,7 @@ static CURLcode ossl_connect_step1(struct Curl_cfilter *cf,
 
   SSL_set_app_data(backend->handle, cf);
 
+  connssl->reused_session = FALSE;
   if(ssl_config->primary.sessionid) {
     Curl_ssl_sessionid_lock(data);
     if(!Curl_ssl_getsessionid(cf, data, &ssl_sessionid, NULL)) {
@@ -3811,6 +3810,7 @@ static CURLcode ossl_connect_step1(struct Curl_cfilter *cf,
       }
       /* Informational message */
       infof(data, "SSL reusing session ID");
+      connssl->reused_session = TRUE;
     }
     Curl_ssl_sessionid_unlock(data);
   }
@@ -4079,7 +4079,12 @@ static CURLcode ossl_pkp_pin_peer_pubkey(struct Curl_easy *data, X509* cert,
 
   return result;
 }
-#if (OPENSSL_VERSION_NUMBER >= 0x30000000L) &&  \
+
+#if (OPENSSL_VERSION_NUMBER >= 0x10100000L) &&  \
+  !(defined(LIBRESSL_VERSION_NUMBER) && \
+    LIBRESSL_VERSION_NUMBER < 0x3060000fL) && \
+  !defined(OPENSSL_IS_BORINGSSL) && \
+  !defined(OPENSSL_IS_AWSLC) && \
   !defined(CURL_DISABLE_VERBOSE_STRINGS)
 static void infof_certstack(struct Curl_easy *data, const SSL *ssl)
 {
@@ -4094,12 +4099,9 @@ static void infof_certstack(struct Curl_easy *data, const SSL *ssl)
   else
     certstack = SSL_get0_verified_chain(ssl);
   num_cert_levels = sk_X509_num(certstack);
-  OpenSSL_add_all_algorithms();
-  OpenSSL_add_all_digests();
 
   for(cert_level = 0; cert_level < num_cert_levels; cert_level++) {
     char cert_algorithm[80] = "";
-    char group_name[80] = "";
     char group_name_final[80] = "";
     const X509_ALGOR *palg_cert = NULL;
     const ASN1_OBJECT *paobj_cert = NULL;
@@ -4108,6 +4110,7 @@ static void infof_certstack(struct Curl_easy *data, const SSL *ssl)
     int key_bits;
     int key_sec_bits;
     int get_group_name;
+    const char *type_name;
 
     current_cert = sk_X509_value(certstack, cert_level);
 
@@ -4117,15 +4120,27 @@ static void infof_certstack(struct Curl_easy *data, const SSL *ssl)
 
     current_pkey = X509_get0_pubkey(current_cert);
     key_bits = EVP_PKEY_bits(current_pkey);
+#if (OPENSSL_VERSION_NUMBER < 0x30000000L)
+#define EVP_PKEY_get_security_bits EVP_PKEY_security_bits
+#endif
     key_sec_bits = EVP_PKEY_get_security_bits(current_pkey);
-    get_group_name = EVP_PKEY_get_group_name(current_pkey, group_name,
-                                             sizeof(group_name), NULL);
-    msnprintf(group_name_final, sizeof(group_name_final), "/%s", group_name);
+#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
+    {
+      char group_name[80] = "";
+      get_group_name = EVP_PKEY_get_group_name(current_pkey, group_name,
+                                               sizeof(group_name), NULL);
+      msnprintf(group_name_final, sizeof(group_name_final), "/%s", group_name);
+    }
+    type_name = EVP_PKEY_get0_type_name(current_pkey);
+#else
+    get_group_name = 0;
+    type_name = NULL;
+#endif
 
     infof(data,
           "  Certificate level %d: "
           "Public key type %s%s (%d/%d Bits/secBits), signed using %s",
-          cert_level, EVP_PKEY_get0_type_name(current_pkey),
+          cert_level, type_name ? type_name : "?",
           get_group_name == 0 ? "" : group_name_final,
           key_bits, key_sec_bits, cert_algorithm);
   }
@@ -4327,7 +4342,8 @@ static CURLcode servercert(struct Curl_cfilter *cf,
 
 #if (OPENSSL_VERSION_NUMBER >= 0x0090808fL) && !defined(OPENSSL_NO_TLSEXT) && \
   !defined(OPENSSL_NO_OCSP)
-  if(conn_config->verifystatus) {
+  if(conn_config->verifystatus && !connssl->reused_session) {
+    /* don't do this after Session ID reuse */
     result = verifystatus(cf, data);
     if(result) {
       X509_free(backend->server_cert);
