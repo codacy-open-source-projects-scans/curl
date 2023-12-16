@@ -973,6 +973,36 @@ struct Curl_easy *curl_easy_duphandle(struct Curl_easy *data)
   }
 #endif
 
+#ifdef CURLRES_ASYNCH
+  /* Clone the resolver handle, if present, for the new handle */
+  if(Curl_resolver_duphandle(outcurl,
+                             &outcurl->state.async.resolver,
+                             data->state.async.resolver))
+    goto fail;
+#endif
+
+#ifdef USE_ARES
+  {
+    CURLcode rc;
+
+    rc = Curl_set_dns_servers(outcurl, data->set.str[STRING_DNS_SERVERS]);
+    if(rc && rc != CURLE_NOT_BUILT_IN)
+      goto fail;
+
+    rc = Curl_set_dns_interface(outcurl, data->set.str[STRING_DNS_INTERFACE]);
+    if(rc && rc != CURLE_NOT_BUILT_IN)
+      goto fail;
+
+    rc = Curl_set_dns_local_ip4(outcurl, data->set.str[STRING_DNS_LOCAL_IP4]);
+    if(rc && rc != CURLE_NOT_BUILT_IN)
+      goto fail;
+
+    rc = Curl_set_dns_local_ip6(outcurl, data->set.str[STRING_DNS_LOCAL_IP6]);
+    if(rc && rc != CURLE_NOT_BUILT_IN)
+      goto fail;
+  }
+#endif /* USE_ARES */
+
   Curl_initinfo(outcurl);
 
   outcurl->magic = CURLEASY_MAGIC_NUMBER;
@@ -1111,7 +1141,7 @@ CURLcode curl_easy_pause(struct Curl_easy *data, int action)
     if(!data->state.tempcount)
       /* if not pausing again, force a recv/send check of this connection as
          the data might've been read off the socket already */
-      data->conn->cselect_bits = CURL_CSELECT_IN | CURL_CSELECT_OUT;
+      data->state.select_bits = CURL_CSELECT_IN | CURL_CSELECT_OUT;
     if(data->multi) {
       if(Curl_update_timer(data->multi))
         return CURLE_ABORTED_BY_CALLBACK;

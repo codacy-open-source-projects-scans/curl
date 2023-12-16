@@ -365,7 +365,7 @@ static void strstore(char **str, const char *newstr, size_t len)
   DEBUGASSERT(newstr);
   DEBUGASSERT(str);
   free(*str);
-  *str = Curl_strndup(newstr, len);
+  *str = Curl_memdup0(newstr, len);
 }
 
 /*
@@ -821,7 +821,7 @@ Curl_cookie_add(struct Curl_easy *data,
         endslash = memrchr(path, '/', (queryp - path));
       if(endslash) {
         size_t pathlen = (endslash-path + 1); /* include end slash */
-        co->path = Curl_strndup(path, pathlen);
+        co->path = Curl_memdup0(path, pathlen);
         if(co->path) {
           co->spath = sanitize_cookie_path(co->path);
           if(!co->spath)
@@ -1227,7 +1227,7 @@ struct CookieInfo *Curl_cookie_init(struct Curl_easy *data,
 
   if(data) {
     FILE *fp = NULL;
-    if(file) {
+    if(file && *file) {
       if(!strcmp(file, "-"))
         fp = stdin;
       else {

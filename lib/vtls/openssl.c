@@ -954,8 +954,9 @@ static char *ossl_strerror(unsigned long error, char *buf, size_t size)
 #endif
 
   if(!*buf) {
-    strncpy(buf, (error ? "Unknown error" : "No error"), size);
-    buf[size - 1] = '\0';
+    const char *msg = error ? "Unknown error" : "No error";
+    if(strlen(msg) < size)
+      strcpy(buf, msg);
   }
 
   return buf;
@@ -1752,7 +1753,7 @@ static int ossl_init(void)
 static void ossl_cleanup(void)
 {
 #if (OPENSSL_VERSION_NUMBER >= 0x10100000L) &&  \
-  !defined(LIBRESSL_VERSION_NUMBER)
+  (!defined(LIBRESSL_VERSION_NUMBER) || LIBRESSL_VERSION_NUMBER >= 0x2070000fL)
   /* OpenSSL 1.1 deprecates all these cleanup functions and
      turns them into no-ops in OpenSSL 1.0 compatibility mode */
 #else
@@ -3174,6 +3175,8 @@ static CURLcode populate_x509_store(struct Curl_cfilter *cf,
   bool imported_native_ca = false;
   bool imported_ca_info_blob = false;
 
+  CURL_TRC_CF(data, cf, "populate_x509_store, path=%s, blob=%d",
+              ssl_cafile? ssl_cafile : "none", !!ca_info_blob);
   if(!store)
     return CURLE_OUT_OF_MEMORY;
 
@@ -4592,10 +4595,10 @@ static ssize_t ossl_send(struct Curl_cfilter *cf,
         ossl_strerror(sslerror, error_buffer, sizeof(error_buffer));
       else if(sockerr)
         Curl_strerror(sockerr, error_buffer, sizeof(error_buffer));
-      else {
-        strncpy(error_buffer, SSL_ERROR_to_str(err), sizeof(error_buffer));
-        error_buffer[sizeof(error_buffer) - 1] = '\0';
-      }
+      else
+        msnprintf(error_buffer, sizeof(error_buffer), "%s",
+                  SSL_ERROR_to_str(err));
+
       failf(data, OSSL_PACKAGE " SSL_write: %s, errno %d",
             error_buffer, sockerr);
       *curlcode = CURLE_SEND_ERROR;
@@ -4688,10 +4691,9 @@ static ssize_t ossl_recv(struct Curl_cfilter *cf,
           ossl_strerror(sslerror, error_buffer, sizeof(error_buffer));
         else if(sockerr && err == SSL_ERROR_SYSCALL)
           Curl_strerror(sockerr, error_buffer, sizeof(error_buffer));
-        else {
-          strncpy(error_buffer, SSL_ERROR_to_str(err), sizeof(error_buffer));
-          error_buffer[sizeof(error_buffer) - 1] = '\0';
-        }
+        else
+          msnprintf(error_buffer, sizeof(error_buffer), "%s",
+                    SSL_ERROR_to_str(err));
         failf(data, OSSL_PACKAGE " SSL_read: %s, errno %d",
               error_buffer, sockerr);
         *curlcode = CURLE_RECV_ERROR;
