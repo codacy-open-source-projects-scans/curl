@@ -319,6 +319,9 @@ curl_easy_strerror(CURLcode error)
   case CURLE_UNRECOVERABLE_POLL:
     return "Unrecoverable error in select/poll";
 
+  case CURLE_TOO_LARGE:
+    return "A value or data field grew larger than allowed";
+
     /* error codes not used by current libcurl */
   case CURLE_OBSOLETE20:
   case CURLE_OBSOLETE24:
@@ -553,6 +556,9 @@ curl_url_strerror(CURLUcode error)
   case CURLUE_LACKS_IDN:
     return "libcurl lacks IDN support";
 
+  case CURLUE_TOO_LARGE:
+    return "A value or data field is larger than allowed";
+
   case CURLUE_LAST:
     break;
   }
@@ -576,11 +582,10 @@ get_winsock_error(int err, char *buf, size_t len)
 {
 #ifndef CURL_DISABLE_VERBOSE_STRINGS
   const char *p;
+  size_t alen;
 #endif
 
-  /* 41 bytes is the longest error string */
-  DEBUGASSERT(len > 41);
-  if(!len || len < 41)
+  if(!len)
     return NULL;
 
   *buf = '\0';
@@ -757,8 +762,9 @@ get_winsock_error(int err, char *buf, size_t len)
   default:
     return NULL;
   }
-  memcpy(buf, p, len - 1);
-  buf[len - 1] = '\0';
+  alen = strlen(p);
+  if(alen < len)
+    strcpy(buf, p);
   return buf;
 #endif
 }

@@ -822,7 +822,7 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
       err = PARAM_NO_NOT_BOOLEAN;
       goto error;
     }
-    else if(expand) {
+    else if(expand && nextarg) {
       struct curlx_dynbuf nbuf;
       bool replaced;
 
@@ -2337,7 +2337,7 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
         config->file_clobber_mode = toggle ? CLOBBER_ALWAYS : CLOBBER_NEVER;
         break;
       }
-      /* FALLTHROUGH */
+      FALLTHROUGH();
     case 'o': /* --output */
       /* output file */
     {
@@ -2640,7 +2640,7 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
       switch(*nextarg) {
       case '+':
         nextarg++;
-        /* FALLTHROUGH */
+        FALLTHROUGH();
       default:
         /* If-Modified-Since: (section 14.28 in RFC2068) */
         config->timecond = CURL_TIMECOND_IFMODSINCE;
