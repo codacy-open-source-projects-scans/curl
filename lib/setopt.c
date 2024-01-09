@@ -681,6 +681,7 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
     data->set.opt_no_body = FALSE; /* this is implied */
     Curl_mime_cleanpart(data->state.formp);
     Curl_safefree(data->state.formp);
+    data->state.mimepost = NULL;
     break;
 #endif
 
@@ -988,6 +989,7 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
 #ifndef CURL_DISABLE_FORM_API
       Curl_mime_cleanpart(data->state.formp);
       Curl_safefree(data->state.formp);
+      data->state.mimepost = NULL;
 #endif
     }
     break;
@@ -3120,6 +3122,10 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
         return CURLE_OUT_OF_MEMORY;
     }
     arg = va_arg(param, long);
+    if(!arg) {
+      DEBUGF(infof(data, "bad CURLOPT_ALTSVC_CTRL input"));
+      return CURLE_BAD_FUNCTION_ARGUMENT;
+    }
     result = Curl_altsvc_ctrl(data->asi, arg);
     if(result)
       return result;
@@ -3174,5 +3180,9 @@ CURLcode curl_easy_setopt(struct Curl_easy *data, CURLoption tag, ...)
   result = Curl_vsetopt(data, tag, arg);
 
   va_end(arg);
+#ifdef DEBUGBUILD
+  if(result == CURLE_BAD_FUNCTION_ARGUMENT)
+    infof(data, "setopt arg 0x%x returned CURLE_BAD_FUNCTION_ARGUMENT", tag);
+#endif
   return result;
 }

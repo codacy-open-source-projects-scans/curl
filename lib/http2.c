@@ -2331,18 +2331,22 @@ static void cf_h2_adjust_pollset(struct Curl_cfilter *cf,
                                  struct easy_pollset *ps)
 {
   struct cf_h2_ctx *ctx = cf->ctx;
-  bool want_recv = CURL_WANT_RECV(data);
-  bool want_send = CURL_WANT_SEND(data);
+  curl_socket_t sock;
+  bool want_recv, want_send;
 
-  if(ctx->h2 && (want_recv || want_send)) {
+  if(!ctx->h2)
+    return;
+
+  sock = Curl_conn_cf_get_socket(cf, data);
+  Curl_pollset_check(data, ps, sock, &want_recv, &want_send);
+  if(want_recv || want_send) {
     struct stream_ctx *stream = H2_STREAM_CTX(data);
-    curl_socket_t sock = Curl_conn_cf_get_socket(cf, data);
     struct cf_call_data save;
     bool c_exhaust, s_exhaust;
 
     CF_DATA_SAVE(save, cf, data);
-    c_exhaust = !nghttp2_session_get_remote_window_size(ctx->h2);
-    s_exhaust = stream && stream->id >= 0 &&
+    c_exhaust = want_send && !nghttp2_session_get_remote_window_size(ctx->h2);
+    s_exhaust = want_send && stream && stream->id >= 0 &&
                 !nghttp2_session_get_stream_remote_window_size(ctx->h2,
                                                                stream->id);
     want_recv = (want_recv || c_exhaust || s_exhaust);
