@@ -998,9 +998,11 @@ static int connecting_getsock(struct Curl_easy *data, curl_socket_t *socks)
 {
   struct connectdata *conn = data->conn;
   (void)socks;
-  if(conn && conn->sockfd != CURL_SOCKET_BAD) {
+  /* Not using `conn->sockfd` as `Curl_setup_transfer()` initializes
+   * that *after* the connect. */
+  if(conn && conn->sock[FIRSTSOCKET] != CURL_SOCKET_BAD) {
     /* Default is to wait to something from the server */
-    socks[0] = conn->sockfd;
+    socks[0] = conn->sock[FIRSTSOCKET];
     return GETSOCK_READSOCK(0);
   }
   return GETSOCK_BLANK;
@@ -2478,7 +2480,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
       }
 
       /* read/write data if it is ready to do so */
-      result = Curl_readwrite(data->conn, data, &done);
+      result = Curl_readwrite(data, &done);
 
       if(done || (result == CURLE_RECV_ERROR)) {
         /* If CURLE_RECV_ERROR happens early enough, we assume it was a race
