@@ -64,13 +64,15 @@ libcurl can be built and customized in many ways. One of the things that
 varies from different libraries and builds is the support for SSL-based
 transfers, like HTTPS and FTPS. If a supported SSL library was detected
 properly at build-time, libcurl is built with SSL support. To figure out if an
-installed libcurl has been built with SSL support enabled, use &'curl-config'
+installed libcurl has been built with SSL support enabled, use *curl-config*
 like this:
+
 ~~~c
   $ curl-config --feature
 ~~~
-And if SSL is supported, the keyword *SSL* is written to stdout, possibly
-together with a other features that could be either on or off on for different
+
+If SSL is supported, the keyword *SSL* is written to stdout, possibly together
+with a other features that could be either on or off on for different
 libcurls.
 
 See also the "Features libcurl Provides" further down.
@@ -227,30 +229,32 @@ program. Therefore, if you use the default callback and pass in an open file
 handle with CURLOPT_WRITEDATA(3), libcurl crashes. You should avoid this
 to make your program run fine virtually everywhere.
 
-(CURLOPT_WRITEDATA(3) was formerly known as *CURLOPT_FILE*. Both
-names still work and do the same thing).
+(CURLOPT_WRITEDATA(3) was formerly known as *CURLOPT_FILE*. Both names still
+work and do the same thing).
 
 If you are using libcurl as a win32 DLL, you MUST use the
-CURLOPT_WRITEFUNCTION(3) if you set CURLOPT_WRITEDATA(3) - or
-experience crashes.
+CURLOPT_WRITEFUNCTION(3) if you set CURLOPT_WRITEDATA(3) - or experience
+crashes.
 
 There are of course many more options you can set, and we get back to a few of
 them later. Let's instead continue to the actual transfer:
+
 ~~~c
  success = curl_easy_perform(handle);
 ~~~
-curl_easy_perform(3) connects to the remote site, does the necessary
-commands and performs the transfer. Whenever it receives data, it calls the
-callback function we previously set. The function may get one byte at a time,
-or it may get many kilobytes at once. libcurl delivers as much as possible as
-often as possible. Your callback function should return the number of bytes it
-&"took care of". If that is not the same amount of bytes that was passed to
-it, libcurl aborts the operation and returns with an error code.
+
+curl_easy_perform(3) connects to the remote site, does the necessary commands
+and performs the transfer. Whenever it receives data, it calls the callback
+function we previously set. The function may get one byte at a time, or it may
+get many kilobytes at once. libcurl delivers as much as possible as often as
+possible. Your callback function should return the number of bytes it "took
+care of". If that is not the same amount of bytes that was passed to it,
+libcurl aborts the operation and returns with an error code.
 
 When the transfer is complete, the function returns a return code that informs
 you if it succeeded in its mission or not. If a return code is not enough for
-you, you can use the CURLOPT_ERRORBUFFER(3) to point libcurl to a buffer
-of yours where it stores a human readable error message as well.
+you, you can use the CURLOPT_ERRORBUFFER(3) to point libcurl to a buffer of
+yours where it stores a human readable error message as well.
 
 If you then want to transfer another file, the handle is ready to be used
 again. It is even preferred and encouraged that you reuse an existing handle
@@ -363,30 +367,36 @@ libcurl also provides options to set various passwords. The user name and
 password as shown embedded in the URL can instead get set with the
 CURLOPT_USERPWD(3) option. The argument passed to libcurl should be a
 char * to a string in the format "user:password". In a manner like this:
+
 ~~~c
  curl_easy_setopt(handle, CURLOPT_USERPWD, "myname:thesecret");
 ~~~
+
 Another case where name and password might be needed at times, is for those
 users who need to authenticate themselves to a proxy they use. libcurl offers
-another option for this, the CURLOPT_PROXYUSERPWD(3). It is used quite
-similar to the CURLOPT_USERPWD(3) option like this:
+another option for this, the CURLOPT_PROXYUSERPWD(3). It is used quite similar
+to the CURLOPT_USERPWD(3) option like this:
+
 ~~~c
  curl_easy_setopt(handle, CURLOPT_PROXYUSERPWD, "myname:thesecret");
 ~~~
+
 There is a long time Unix "standard" way of storing FTP user names and
 passwords, namely in the $HOME/.netrc file (on Windows, libcurl also checks
-the *%USERPROFILE% environment* variable if *%HOME%* is unset, and
-tries "_netrc" as name). The file should be made private so that only the user
-may read it (see also the "Security Considerations" chapter), as it might
-contain the password in plain text. libcurl has the ability to use this file
-to figure out what set of user name and password to use for a particular
-host. As an extension to the normal functionality, libcurl also supports this
-file for non-FTP protocols such as HTTP. To make curl use this file, use the
+the *%USERPROFILE% environment* variable if *%HOME%* is unset, and tries
+"_netrc" as name). The file should be made private so that only the user may
+read it (see also the "Security Considerations" chapter), as it might contain
+the password in plain text. libcurl has the ability to use this file to figure
+out what set of user name and password to use for a particular host. As an
+extension to the normal functionality, libcurl also supports this file for
+non-FTP protocols such as HTTP. To make curl use this file, use the
 CURLOPT_NETRC(3) option:
+
 ~~~c
  curl_easy_setopt(handle, CURLOPT_NETRC, 1L);
 ~~~
-And a basic example of how such a .netrc file may look like:
+
+A basic example of how such a .netrc file may look like:
 
 ~~~c
  machine myhost.mydomain.com
@@ -414,25 +424,32 @@ method is called 'Basic', which is sending the name and password in clear-text
 in the HTTP request, base64-encoded. This is insecure.
 
 At the time of this writing, libcurl can be built to use: Basic, Digest, NTLM,
-Negotiate (SPNEGO). You can tell libcurl which one to use
-with CURLOPT_HTTPAUTH(3) as in:
+Negotiate (SPNEGO). You can tell libcurl which one to use with
+CURLOPT_HTTPAUTH(3) as in:
+
 ~~~c
  curl_easy_setopt(handle, CURLOPT_HTTPAUTH, CURLAUTH_DIGEST);
+
 ~~~
-And when you send authentication to a proxy, you can also set authentication
-type the same way but instead with CURLOPT_PROXYAUTH(3):
+
+When you send authentication to a proxy, you can also set authentication type
+the same way but instead with CURLOPT_PROXYAUTH(3):
+
 ~~~c
  curl_easy_setopt(handle, CURLOPT_PROXYAUTH, CURLAUTH_NTLM);
 ~~~
+
 Both these options allow you to set multiple types (by ORing them together),
 to make libcurl pick the most secure one out of the types the server/proxy
 claims to support. This method does however add a round-trip since libcurl
 must first ask the server what it supports:
+
 ~~~c
  curl_easy_setopt(handle, CURLOPT_HTTPAUTH, CURLAUTH_DIGEST|CURLAUTH_BASIC);
 ~~~
-For convenience, you can use the *CURLAUTH_ANY* define (instead of a list
-with specific types) which allows libcurl to use whatever method it wants.
+
+For convenience, you can use the *CURLAUTH_ANY* define (instead of a list with
+specific types) which allows libcurl to use whatever method it wants.
 
 When asking for multiple types, libcurl picks the available one it considers
 "best" in its own internal order of preference.
@@ -503,7 +520,7 @@ There are three possible data sources for a part: memory using
 curl_mime_data(3), file using curl_mime_filedata(3) and user-defined data
 read callback using curl_mime_data_cb(3). curl_mime_name(3) sets a part's
 (i.e.: form field) name, while curl_mime_filename(3) fills in the remote
-file name. With curl_mime_type(3), you can tell the MIME type of a part,
+filename. With curl_mime_type(3), you can tell the MIME type of a part,
 curl_mime_headers(3) allows defining the part's headers. When a multi-part
 body is no longer needed, you can destroy it using curl_mime_free(3).
 
@@ -739,9 +756,8 @@ becomes:
  curl_mime_filename(part, NULL);
 ~~~
 
-Use of curl_mime_filedata(3) sets the remote file name as a side effect:
-it is therefore necessary to clear it for *CURLFORM_FILECONTENT*
-emulation.
+Use of curl_mime_filedata(3) sets the remote filename as a side effect: it is
+therefore necessary to clear it for *CURLFORM_FILECONTENT* emulation.
 
 # Showing Progress
 
@@ -757,8 +773,8 @@ instead is interesting is the ability to specify a progress callback. The
 function pointer you pass to libcurl is then called on irregular intervals
 with information about the current transfer.
 
-Set the progress callback by using CURLOPT_PROGRESSFUNCTION(3). And pass
-a pointer to a function that matches this prototype:
+Set the progress callback by using CURLOPT_PROGRESSFUNCTION(3). Pass a pointer
+to a function that matches this prototype:
 
 ~~~c
  int progress_callback(void *clientp,
@@ -828,7 +844,7 @@ pass that information similar to this:
 ~~~c
  curl_easy_setopt(handle, CURLOPT_PROXYUSERPWD, "user:password");
 ~~~
-If you want to, you can specify the host name only in the
+If you want to, you can specify the hostname only in the
 CURLOPT_PROXY(3) option, and set the port number separately with
 CURLOPT_PROXYPORT(3).
 
@@ -843,7 +859,7 @@ it defaults to assuming an HTTP proxy):
 libcurl automatically checks and uses a set of environment variables to know
 what proxies to use for certain protocols. The names of the variables are
 following an old tradition and are built up as "[protocol]_proxy" (note the
-lower casing). Which makes the variable &'http_proxy' checked for a name of a
+lower casing). Which makes the variable 'http_proxy' checked for a name of a
 proxy to use when the input URL is HTTP. Following the same rule, the variable
 named 'ftp_proxy' is checked for FTP URLs. Again, the proxies are always HTTP
 proxies, the different names of the variables simply allows different HTTP
@@ -856,10 +872,9 @@ which port the proxy operates. If not specified, the internal default port
 number is used and that is most likely not the one you would like it to be.
 
 There are two special environment variables. 'all_proxy' is what sets proxy
-for any URL in case the protocol specific variable was not set, and
-&'no_proxy' defines a list of hosts that should not use a proxy even though a
-variable may say so. If 'no_proxy' is a plain asterisk ("*") it matches all
-hosts.
+for any URL in case the protocol specific variable was not set, and 'no_proxy'
+defines a list of hosts that should not use a proxy even though a variable may
+say so. If 'no_proxy' is a plain asterisk ("*") it matches all hosts.
 
 To explicitly disable libcurl's checking for and using the proxy environment
 variables, set the proxy name to "" - an empty string - with
@@ -912,8 +927,8 @@ for such innovative actions either!
 
 ## Proxy Auto-Config
 
-Netscape first came up with this. It is basically a web page (usually using a
-&.pac extension) with a JavaScript that when executed by the browser with the
+Netscape first came up with this. It is basically a webpage (usually using a
+.pac extension) with a JavaScript that when executed by the browser with the
 requested URL as input, returns information to the browser on how to connect
 to the URL. The returned information might be "DIRECT" (which means no proxy
 should be used), "PROXY host:port" (to tell the browser where the proxy for
@@ -985,11 +1000,11 @@ anything but default.
 
 ## Accept
 
-&"*/*".
+"*/*"
 
 ## Expect
 
-When doing POST requests, libcurl sets this header to &"100-continue" to ask
+When doing POST requests, libcurl sets this header to "100-continue" to ask
 the server for an "OK" message before it proceeds with sending the data part
 of the post. If the posted data amount is deemed "small", libcurl does not use
 this header.
@@ -1039,9 +1054,9 @@ curl_easy_perform(handle); /* transfer http */
 curl_slist_free_all(headers); /* free the header list */
 ~~~
 
-&... and if you think some of the internally generated headers, such as
-Accept: or Host: do not contain the data you want them to contain, you can
-replace them by simply setting them too:
+... and if you think some of the internally generated headers, such as Accept:
+or Host: do not contain the data you want them to contain, you can replace
+them by simply setting them too:
 
 ~~~c
 headers = curl_slist_append(headers, "Accept: Agent-007");
@@ -1052,7 +1067,7 @@ headers = curl_slist_append(headers, "Host: munged.host.line");
 
 If you replace an existing header with one with no contents, you prevent the
 header from being sent. For instance, if you want to completely prevent the
-&"Accept:" header from being sent, you can disable it with code similar to
+"Accept:" header from being sent, you can disable it with code similar to
 this:
 
  headers = curl_slist_append(headers, "Accept:");
@@ -1179,11 +1194,11 @@ libcurl automatically finds out what kind of file it is and acts accordingly.
 
 Perhaps the most advanced cookie operation libcurl offers, is saving the
 entire internal cookie state back into a Netscape/Mozilla formatted cookie
-file. We call that the cookie-jar. When you set a file name with
-CURLOPT_COOKIEJAR(3), that file name is created and all received cookies
-get stored in it when curl_easy_cleanup(3) is called. This enables
-cookies to get passed on properly between multiple handles without any
-information getting lost.
+file. We call that the cookie-jar. When you set a filename with
+CURLOPT_COOKIEJAR(3), that filename is created and all received cookies get
+stored in it when curl_easy_cleanup(3) is called. This enables cookies to get
+passed on properly between multiple handles without any information getting
+lost.
 
 # FTP Peculiarities We Need
 
@@ -1209,7 +1224,7 @@ something and only allows connections on a single port. libcurl then informs
 the remote server which IP address and port number to connect to. This is made
 with the CURLOPT_FTPPORT(3) option. If you set it to "-", libcurl uses your
 system's "default IP address". If you want to use a particular IP, you can set
-the full IP address, a host name to resolve to an IP address or even a local
+the full IP address, a hostname to resolve to an IP address or even a local
 network interface name that libcurl gets the IP address from.
 
 When doing the "PORT" approach, libcurl attempts to use the EPRT and the LPRT
@@ -1311,7 +1326,7 @@ The headers are passed to the callback function one by one, and you can
 depend on that fact. It makes it easier for you to add custom header parsers
 etc.
 
-&"Headers" for FTP transfers equal all the FTP server responses. They are not
+"Headers" for FTP transfers equal all the FTP server responses. They are not
 actually true headers, but in this case we pretend they are! ;-)
 
 # Post Transfer Information

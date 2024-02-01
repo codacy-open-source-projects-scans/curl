@@ -24,13 +24,13 @@ CURLcode curl_easy_setopt(CURL *handle, CURLOPT_HSTS, char *filename);
 
 # DESCRIPTION
 
-Make the *filename* point to a file name to load an existing HSTS cache
+Make the *filename* point to a filename to load an existing HSTS cache
 from, and to store the cache in when the easy handle is closed. Setting a file
 name with this option also enables HSTS for this handle (the equivalent of
 setting *CURLHSTS_ENABLE* with CURLOPT_HSTS_CTRL(3)).
 
 If the given file does not exist or contains no HSTS entries at startup, the
-HSTS cache simply starts empty. Setting the file name to NULL or "" only
+HSTS cache simply starts empty. Setting the filename to NULL or "" only
 enables HSTS without reading from or writing to any file.
 
 If this option is set multiple times, libcurl loads cache entries from each
@@ -48,7 +48,7 @@ an entry valid for all subdomains to the name as well or only for the exact
 name.
 
 [stamp] is the time (in UTC) when the entry expires and it uses the format
-&"YYYYMMDD HH:MM:SS".
+"YYYYMMDD HH:MM:SS".
 
 Lines starting with "#" are treated as comments and are ignored. There is
 currently no length or size limit.
