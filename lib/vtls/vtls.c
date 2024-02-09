@@ -774,9 +774,13 @@ void Curl_ssl_adjust_pollset(struct Curl_cfilter *cf, struct Curl_easy *data,
     if(sock != CURL_SOCKET_BAD) {
       if(connssl->connecting_state == ssl_connect_2_writing) {
         Curl_pollset_set_out_only(data, ps, sock);
+        CURL_TRC_CF(data, cf, "adjust_pollset, POLLOUT fd=%"
+                    CURL_FORMAT_SOCKET_T, sock);
       }
       else {
         Curl_pollset_set_in_only(data, ps, sock);
+        CURL_TRC_CF(data, cf, "adjust_pollset, POLLIN fd=%"
+                    CURL_FORMAT_SOCKET_T, sock);
       }
     }
   }
@@ -1715,32 +1719,17 @@ static ssize_t ssl_cf_recv(struct Curl_cfilter *cf,
 {
   struct cf_call_data save;
   ssize_t nread;
-  size_t ntotal = 0;
 
   CF_DATA_SAVE(save, cf, data);
   *err = CURLE_OK;
-  /* Do receive until we fill the buffer somehwhat or EGAIN, error or EOF */
-  while(!ntotal || (len - ntotal) > (4*1024)) {
-    *err = CURLE_OK;
-    nread = Curl_ssl->recv_plain(cf, data, buf + ntotal, len - ntotal, err);
-    if(nread < 0) {
-      if(*err == CURLE_AGAIN && ntotal > 0) {
-        /* we EAGAINed after having reed data, return the success amount */
-        *err = CURLE_OK;
-        break;
-      }
-      /* we have a an error to report */
-      goto out;
-    }
-    else if(nread == 0) {
-      /* eof */
-      break;
-    }
-    ntotal += (size_t)nread;
-    DEBUGASSERT((size_t)ntotal <= len);
+  nread = Curl_ssl->recv_plain(cf, data, buf, len, err);
+  if(nread > 0) {
+    DEBUGASSERT((size_t)nread <= len);
   }
-  nread = (ssize_t)ntotal;
-out:
+  else if(nread == 0) {
+    /* eof */
+    *err = CURLE_OK;
+  }
   CURL_TRC_CF(data, cf, "cf_recv(len=%zu) -> %zd, %d", len,
               nread, *err);
   CF_DATA_RESTORE(cf, save);
