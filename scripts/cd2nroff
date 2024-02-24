@@ -255,7 +255,7 @@ sub single {
             print STDERR "$f:$line:1:WARN: un-escaped < or > used\n";
         }
         # convert backslash-'<' or '> to just the second character
-        $d =~ s/\\([<<])/$1/g;
+        $d =~ s/\\([<>])/$1/g;
 
         # mentions of curl symbols with man pages use italics by default
         $d =~ s/((lib|)curl([^ ]*\(3\)))/\\fI$1\\fP/gi;
@@ -266,7 +266,7 @@ sub single {
         if(/^## (.*)/) {
             my $word = $1;
             # if there are enclosing quotes, remove them first
-            $word =~ s/[\"\'](.*)[\"\']\z/$1/;
+            $word =~ s/[\"\'\`](.*)[\"\'\`]\z/$1/;
 
             # enclose in double quotes if there is a space present
             if($word =~ / /) {
