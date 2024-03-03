@@ -690,6 +690,7 @@ static CURLcode smtp_perform_mail(struct Curl_easy *data)
     }
   }
 
+#ifndef CURL_DISABLE_MIME
   /* Prepare the mime data if some. */
   if(data->set.mimepost.kind != MIMEKIND_NONE) {
     /* Use the whole structure as data. */
@@ -722,6 +723,7 @@ static CURLcode smtp_perform_mail(struct Curl_easy *data)
     data->state.fread_func = (curl_read_callback) Curl_mime_read;
     data->state.in = (void *) &data->set.mimepost;
   }
+#endif
 
   /* Calculate the optional SIZE parameter */
   if(conn->proto.smtpc.size_supported && data->state.infilesize > 0) {
@@ -1162,7 +1164,7 @@ static CURLcode smtp_state_data_resp(struct Curl_easy *data, int smtpcode,
     Curl_pgrsSetUploadSize(data, data->state.infilesize);
 
     /* SMTP upload */
-    Curl_setup_transfer(data, -1, -1, FALSE, FIRSTSOCKET);
+    Curl_xfer_setup(data, -1, -1, FALSE, FIRSTSOCKET);
 
     /* End of DO phase */
     smtp_state(data, SMTP_STOP);
@@ -1194,7 +1196,6 @@ static CURLcode smtp_statemachine(struct Curl_easy *data,
                                   struct connectdata *conn)
 {
   CURLcode result = CURLE_OK;
-  curl_socket_t sock = conn->sock[FIRSTSOCKET];
   int smtpcode;
   struct smtp_conn *smtpc = &conn->proto.smtpc;
   struct pingpong *pp = &smtpc->pp;
@@ -1210,7 +1211,7 @@ static CURLcode smtp_statemachine(struct Curl_easy *data,
 
   do {
     /* Read the response from the server */
-    result = Curl_pp_readresp(data, sock, pp, &smtpcode, &nread);
+    result = Curl_pp_readresp(data, FIRSTSOCKET, pp, &smtpcode, &nread);
     if(result)
       return result;
 
@@ -1394,8 +1395,7 @@ static CURLcode smtp_done(struct Curl_easy *data, CURLcode status,
   struct SMTP *smtp = data->req.p.smtp;
   struct pingpong *pp = &conn->proto.smtpc.pp;
   char *eob;
-  ssize_t len;
-  ssize_t bytes_written;
+  size_t len, bytes_written;
 
   (void)premature;
 
@@ -1410,7 +1410,7 @@ static CURLcode smtp_done(struct Curl_easy *data, CURLcode status,
     result = status;         /* use the already set error code */
   }
   else if(!data->set.connect_only && data->set.mail_rcpt &&
-          (data->state.upload || data->set.mimepost.kind)) {
+          (data->state.upload || IS_MIME_POST(data))) {
     /* Calculate the EOB taking into account any terminating CRLF from the
        previous line of the email or the CRLF of the DATA command when there
        is "no mail data". RFC-5321, sect. 4.1.1.4.
@@ -1432,7 +1432,7 @@ static CURLcode smtp_done(struct Curl_easy *data, CURLcode status,
       return CURLE_OUT_OF_MEMORY;
 
     /* Send the end of block data */
-    result = Curl_write(data, conn->writesockfd, eob, len, &bytes_written);
+    result = Curl_xfer_send(data, eob, len, &bytes_written);
     if(result) {
       free(eob);
       return result;
@@ -1502,7 +1502,7 @@ static CURLcode smtp_perform(struct Curl_easy *data, bool *connected,
   smtp->eob = 2;
 
   /* Start the first command in the DO phase */
-  if((data->state.upload || data->set.mimepost.kind) && data->set.mail_rcpt)
+  if((data->state.upload || IS_MIME_POST(data)) && data->set.mail_rcpt)
     /* MAIL transfer */
     result = smtp_perform_mail(data);
   else
@@ -1593,7 +1593,7 @@ static CURLcode smtp_dophase_done(struct Curl_easy *data, bool connected)
 
   if(smtp->transfer != PPTRANSFER_BODY)
     /* no data to transfer */
-    Curl_setup_transfer(data, -1, -1, FALSE, -1);
+    Curl_xfer_setup(data, -1, -1, FALSE, -1);
 
   return CURLE_OK;
 }

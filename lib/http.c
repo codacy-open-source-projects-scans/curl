@@ -73,6 +73,7 @@
 #include "hostip.h"
 #include "dynhds.h"
 #include "http.h"
+#include "headers.h"
 #include "select.h"
 #include "parsedate.h" /* for the week day and month names */
 #include "strtoofft.h"
@@ -446,7 +447,7 @@ static CURLcode http_perhapsrewind(struct Curl_easy *data,
 
   bytessent = data->req.writebytecount;
 
-  if(conn->bits.authneg) {
+  if(data->req.authneg) {
     /* This is a state where we are known to be negotiating and we don't send
        any data then. */
     expectsend = 0;
@@ -488,7 +489,7 @@ static CURLcode http_perhapsrewind(struct Curl_easy *data,
            data left to send, keep on sending. */
 
         /* rewind data when completely done sending! */
-        if(!conn->bits.authneg && (conn->writesockfd != CURL_SOCKET_BAD)) {
+        if(!data->req.authneg && (conn->writesockfd != CURL_SOCKET_BAD)) {
           data->state.rewindbeforesend = TRUE;
           infof(data, "Rewind stream before next send");
         }
@@ -516,7 +517,7 @@ static CURLcode http_perhapsrewind(struct Curl_easy *data,
         there is just a little (<2K) data left to send, keep on sending. */
 
         /* rewind data when completely done sending! */
-        if(!conn->bits.authneg && (conn->writesockfd != CURL_SOCKET_BAD)) {
+        if(!data->req.authneg && (conn->writesockfd != CURL_SOCKET_BAD)) {
           data->state.rewindbeforesend = TRUE;
           infof(data, "Rewind stream before next send");
         }
@@ -542,7 +543,7 @@ static CURLcode http_perhapsrewind(struct Curl_easy *data,
        closure so we can safely do the rewind right now */
   }
 
-  if(bytessent) {
+  if(Curl_client_read_needs_rewind(data)) {
     /* mark for rewind since if we already sent something */
     data->state.rewindbeforesend = TRUE;
     infof(data, "Please rewind output before next send");
@@ -578,7 +579,7 @@ CURLcode Curl_http_auth_act(struct Curl_easy *data)
 
   if((data->state.aptr.user || data->set.str[STRING_BEARER]) &&
      ((data->req.httpcode == 401) ||
-      (conn->bits.authneg && data->req.httpcode < 300))) {
+      (data->req.authneg && data->req.httpcode < 300))) {
     pickhost = pickoneauth(&data->state.authhost, authmask);
     if(!pickhost)
       data->state.authproblem = TRUE;
@@ -592,7 +593,7 @@ CURLcode Curl_http_auth_act(struct Curl_easy *data)
 #ifndef CURL_DISABLE_PROXY
   if(conn->bits.proxy_user_passwd &&
      ((data->req.httpcode == 407) ||
-      (conn->bits.authneg && data->req.httpcode < 300))) {
+      (data->req.authneg && data->req.httpcode < 300))) {
     pickproxy = pickoneauth(&data->state.authproxy,
                             authmask & ~CURLAUTH_BEARER);
     if(!pickproxy)
@@ -618,7 +619,7 @@ CURLcode Curl_http_auth_act(struct Curl_easy *data)
   }
   else if((data->req.httpcode < 300) &&
           (!data->state.authhost.done) &&
-          conn->bits.authneg) {
+          data->req.authneg) {
     /* no (known) authentication available,
        authentication is not "done" yet and
        no authentication seems to be required and
@@ -863,10 +864,10 @@ Curl_http_output_auth(struct Curl_easy *data,
      (httpreq != HTTPREQ_HEAD)) {
     /* Auth is required and we are not authenticated yet. Make a PUT or POST
        with content-length zero as a "probe". */
-    conn->bits.authneg = TRUE;
+    data->req.authneg = TRUE;
   }
   else
-    conn->bits.authneg = FALSE;
+    data->req.authneg = FALSE;
 
   return result;
 }
@@ -1174,274 +1175,6 @@ static bool http_should_fail(struct Curl_easy *data)
 }
 
 /*
- * readmoredata() is a "fread() emulation" to provide POST and/or request
- * data. It is used when a huge POST is to be made and the entire chunk wasn't
- * sent in the first send(). This function will then be called from the
- * transfer.c loop when more data is to be sent to the peer.
- *
- * Returns the amount of bytes it filled the buffer with.
- */
-static size_t readmoredata(char *buffer,
-                           size_t size,
-                           size_t nitems,
-                           void *userp)
-{
-  struct HTTP *http = (struct HTTP *)userp;
-  struct Curl_easy *data = http->backup.data;
-  size_t fullsize = size * nitems;
-
-  if(!http->postsize)
-    /* nothing to return */
-    return 0;
-
-  /* make sure that an HTTP request is never sent away chunked! */
-  data->req.forbidchunk = (http->sending == HTTPSEND_REQUEST)?TRUE:FALSE;
-
-  if(data->set.max_send_speed &&
-     (data->set.max_send_speed < (curl_off_t)fullsize) &&
-     (data->set.max_send_speed < http->postsize))
-    /* speed limit */
-    fullsize = (size_t)data->set.max_send_speed;
-
-  else if(http->postsize <= (curl_off_t)fullsize) {
-    memcpy(buffer, http->postdata, (size_t)http->postsize);
-    fullsize = (size_t)http->postsize;
-
-    if(http->backup.postsize) {
-      /* move backup data into focus and continue on that */
-      http->postdata = http->backup.postdata;
-      http->postsize = http->backup.postsize;
-      data->state.fread_func = http->backup.fread_func;
-      data->state.in = http->backup.fread_in;
-
-      http->sending++; /* move one step up */
-
-      http->backup.postsize = 0;
-    }
-    else
-      http->postsize = 0;
-
-    return fullsize;
-  }
-
-  memcpy(buffer, http->postdata, fullsize);
-  http->postdata += fullsize;
-  http->postsize -= fullsize;
-
-  return fullsize;
-}
-
-/*
- * Curl_buffer_send() sends a header buffer and frees all associated
- * memory.  Body data may be appended to the header data if desired.
- *
- * Returns CURLcode
- */
-CURLcode Curl_buffer_send(struct dynbuf *in,
-                          struct Curl_easy *data,
-                          struct HTTP *http,
-                          /* add the number of sent bytes to this
-                             counter */
-                          curl_off_t *bytes_written,
-                          /* how much of the buffer contains body data */
-                          curl_off_t included_body_bytes,
-                          int sockindex)
-{
-  ssize_t amount;
-  CURLcode result;
-  char *ptr;
-  size_t size;
-  struct connectdata *conn = data->conn;
-  size_t sendsize;
-  size_t headersize;
-
-  DEBUGASSERT(sockindex <= SECONDARYSOCKET && sockindex >= 0);
-
-  /* The looping below is required since we use non-blocking sockets, but due
-     to the circumstances we will just loop and try again and again etc */
-
-  ptr = Curl_dyn_ptr(in);
-  size = Curl_dyn_len(in);
-
-  headersize = size - (size_t)included_body_bytes; /* the initial part that
-                                                      isn't body is header */
-
-  DEBUGASSERT(size > (size_t)included_body_bytes);
-
-  if((conn->handler->flags & PROTOPT_SSL
-#ifndef CURL_DISABLE_PROXY
-      || IS_HTTPS_PROXY(conn->http_proxy.proxytype)
-#endif
-       )
-     && conn->httpversion < 20) {
-    /* Make sure this doesn't send more body bytes than what the max send
-       speed says. The request bytes do not count to the max speed.
-    */
-    if(data->set.max_send_speed &&
-       (included_body_bytes > data->set.max_send_speed)) {
-      curl_off_t overflow = included_body_bytes - data->set.max_send_speed;
-      DEBUGASSERT((size_t)overflow < size);
-      sendsize = size - (size_t)overflow;
-    }
-    else
-      sendsize = size;
-
-    /* OpenSSL is very picky and we must send the SAME buffer pointer to the
-       library when we attempt to re-send this buffer. Sending the same data
-       is not enough, we must use the exact same address. For this reason, we
-       must copy the data to the uploadbuffer first, since that is the buffer
-       we will be using if this send is retried later.
-    */
-    result = Curl_get_upload_buffer(data);
-    if(result) {
-      /* malloc failed, free memory and return to the caller */
-      Curl_dyn_free(in);
-      return result;
-    }
-    /* We never send more than upload_buffer_size bytes in one single chunk
-       when we speak HTTPS, as if only a fraction of it is sent now, this data
-       needs to fit into the normal read-callback buffer later on and that
-       buffer is using this size.
-    */
-    if(sendsize > (size_t)data->set.upload_buffer_size)
-      sendsize = (size_t)data->set.upload_buffer_size;
-
-    memcpy(data->state.ulbuf, ptr, sendsize);
-    ptr = data->state.ulbuf;
-  }
-  else {
-#ifdef CURLDEBUG
-    /* Allow debug builds to override this logic to force short initial
-       sends
-     */
-    char *p = getenv("CURL_SMALLREQSEND");
-    if(p) {
-      size_t altsize = (size_t)strtoul(p, NULL, 10);
-      if(altsize)
-        sendsize = CURLMIN(size, altsize);
-      else
-        sendsize = size;
-    }
-    else
-#endif
-    {
-      /* Make sure this doesn't send more body bytes than what the max send
-         speed says. The request bytes do not count to the max speed.
-      */
-      if(data->set.max_send_speed &&
-         (included_body_bytes > data->set.max_send_speed)) {
-        curl_off_t overflow = included_body_bytes - data->set.max_send_speed;
-        DEBUGASSERT((size_t)overflow < size);
-        sendsize = size - (size_t)overflow;
-      }
-      else
-        sendsize = size;
-    }
-
-    /* We currently cannot send more that this for http here:
-     * - if sending blocks, it return 0 as amount
-     * - we then whisk aside the `in` into the `http` struct
-     *   and install our own `data->state.fread_func` that
-     *   on subsequent calls reads `in` empty.
-     * - when the whisked away `in` is empty, the `fread_func`
-     *   is restored to its original state.
-     * The problem is that `fread_func` can only return
-     * `upload_buffer_size` lengths. If the send we do here
-     * is larger and blocks, we do re-sending with smaller
-     * amounts of data and connection filters do not like
-     * that.
-     */
-    if(http && (sendsize > (size_t)data->set.upload_buffer_size))
-      sendsize = (size_t)data->set.upload_buffer_size;
-  }
-
-  result = Curl_nwrite(data, sockindex, ptr, sendsize, &amount);
-
-  if(!result) {
-    /*
-     * Note that we may not send the entire chunk at once, and we have a set
-     * number of data bytes at the end of the big buffer (out of which we may
-     * only send away a part).
-     */
-    /* how much of the header that was sent */
-    size_t headlen = (size_t)amount>headersize ? headersize : (size_t)amount;
-    size_t bodylen = amount - headlen;
-
-    /* this data _may_ contain binary stuff */
-    Curl_debug(data, CURLINFO_HEADER_OUT, ptr, headlen);
-    if(bodylen)
-      /* there was body data sent beyond the initial header part, pass that on
-         to the debug callback too */
-      Curl_debug(data, CURLINFO_DATA_OUT, ptr + headlen, bodylen);
-
-    /* 'amount' can never be a very large value here so typecasting it so a
-       signed 31 bit value should not cause problems even if ssize_t is
-       64bit */
-    *bytes_written += (long)amount;
-
-    if(http) {
-      /* if we sent a piece of the body here, up the byte counter for it
-         accordingly */
-      data->req.writebytecount += bodylen;
-      Curl_pgrsSetUploadCounter(data, data->req.writebytecount);
-
-      if((size_t)amount != size) {
-        /* The whole request could not be sent in one system call. We must
-           queue it up and send it later when we get the chance. We must not
-           loop here and wait until it might work again. */
-
-        size -= amount;
-
-        ptr = Curl_dyn_ptr(in) + amount;
-
-        /* backup the currently set pointers */
-        http->backup.fread_func = data->state.fread_func;
-        http->backup.fread_in = data->state.in;
-        http->backup.postdata = http->postdata;
-        http->backup.postsize = http->postsize;
-        http->backup.data = data;
-
-        /* set the new pointers for the request-sending */
-        data->state.fread_func = (curl_read_callback)readmoredata;
-        data->state.in = (void *)http;
-        http->postdata = ptr;
-        http->postsize = (curl_off_t)size;
-
-        /* this much data is remaining header: */
-        data->req.pendingheader = headersize - headlen;
-
-        http->send_buffer = *in; /* copy the whole struct */
-        http->sending = HTTPSEND_REQUEST;
-        return CURLE_OK;
-      }
-      http->sending = HTTPSEND_BODY;
-      /* the full buffer was sent, clean up and return */
-    }
-    else {
-      if((size_t)amount != size)
-        /* We have no continue-send mechanism now, fail. This can only happen
-           when this function is used from the CONNECT sending function. We
-           currently (stupidly) assume that the whole request is always sent
-           away in the first single chunk.
-
-           This needs FIXing.
-        */
-        return CURLE_SEND_ERROR;
-    }
-  }
-  Curl_dyn_free(in);
-
-  /* no remaining header data */
-  data->req.pendingheader = 0;
-  return result;
-}
-
-/* end of the add_buffer functions */
-/* ------------------------------------------------------------------------- */
-
-
-
-/*
  * Curl_compareheader()
  *
  * Returns TRUE if 'headerline' contains the 'header' with given 'content'.
@@ -1614,13 +1347,12 @@ static const char *get_http_string(const struct Curl_easy *data,
 #endif
 
 /* check and possibly add an Expect: header */
-static CURLcode expect100(struct Curl_easy *data,
-                          struct connectdata *conn,
-                          struct dynbuf *req)
+static CURLcode expect100(struct Curl_easy *data, struct dynbuf *req)
 {
   CURLcode result = CURLE_OK;
-  if(!data->state.disableexpect && Curl_use_http_1_1plus(data, conn) &&
-     (conn->httpversion < 20)) {
+  if(!data->state.disableexpect &&
+     Curl_use_http_1_1plus(data, data->conn) &&
+     (data->conn->httpversion < 20)) {
     /* if not doing HTTP 1.0 or version 2, or disabled explicitly, we add an
        Expect: 100-continue to the headers which actually speeds up post
        operations (as there is one packet coming back from the web server) */
@@ -1644,51 +1376,6 @@ enum proxy_use {
   HEADER_PROXY,   /* regular request to proxy */
   HEADER_CONNECT  /* sending CONNECT to a proxy */
 };
-
-/* used to compile the provided trailers into one buffer
-   will return an error code if one of the headers is
-   not formatted correctly */
-CURLcode Curl_http_compile_trailers(struct curl_slist *trailers,
-                                    struct dynbuf *b,
-                                    struct Curl_easy *handle)
-{
-  char *ptr = NULL;
-  CURLcode result = CURLE_OK;
-  const char *endofline_native = NULL;
-  const char *endofline_network = NULL;
-
-  if(
-#ifdef CURL_DO_LINEEND_CONV
-     (handle->state.prefer_ascii) ||
-#endif
-     (handle->set.crlf)) {
-    /* \n will become \r\n later on */
-    endofline_native  = "\n";
-    endofline_network = "\x0a";
-  }
-  else {
-    endofline_native  = "\r\n";
-    endofline_network = "\x0d\x0a";
-  }
-
-  while(trailers) {
-    /* only add correctly formatted trailers */
-    ptr = strchr(trailers->data, ':');
-    if(ptr && *(ptr + 1) == ' ') {
-      result = Curl_dyn_add(b, trailers->data);
-      if(result)
-        return result;
-      result = Curl_dyn_add(b, endofline_native);
-      if(result)
-        return result;
-    }
-    else
-      infof(handle, "Malformatted trailing header, skipping trailer");
-    trailers = trailers->next;
-  }
-  result = Curl_dyn_add(b, endofline_network);
-  return result;
-}
 
 static bool hd_name_eq(const char *n1, size_t n1len,
                        const char *n2, size_t n2len)
@@ -1808,7 +1495,7 @@ CURLcode Curl_dynhds_add_custom(struct Curl_easy *data,
               /* this header is sent later */
               hd_name_eq(name, namelen, STRCONST("Content-Type:")))
         ;
-      else if(conn->bits.authneg &&
+      else if(data->req.authneg &&
               /* while doing auth neg, don't allow the custom length since
                  we will force length zero then */
               hd_name_eq(name, namelen, STRCONST("Content-Length:")))
@@ -1954,7 +1641,7 @@ CURLcode Curl_add_custom_headers(struct Curl_easy *data,
                   /* this header is sent later */
                   checkprefix("Content-Type:", compare))
             ;
-          else if(conn->bits.authneg &&
+          else if(data->req.authneg &&
                   /* while doing auth neg, don't allow the custom length since
                      we will force length zero then */
                   checkprefix("Content-Length:", compare))
@@ -2344,9 +2031,11 @@ CURLcode Curl_http_body(struct Curl_easy *data, struct connectdata *conn,
   http->postsize = 0;
 
   switch(httpreq) {
+#ifndef CURL_DISABLE_MIME
   case HTTPREQ_POST_MIME:
     data->state.mimepost = &data->set.mimepost;
     break;
+#endif
 #ifndef CURL_DISABLE_FORM_API
   case HTTPREQ_POST_FORM:
     /* Convert the form structure into a mime structure, then keep
@@ -2410,7 +2099,7 @@ CURLcode Curl_http_body(struct Curl_easy *data, struct connectdata *conn,
          http->postsize < 0) ||
         ((data->state.upload || httpreq == HTTPREQ_POST) &&
          data->state.infilesize == -1))) {
-      if(conn->bits.authneg)
+      if(data->req.authneg)
         /* don't enable chunked during auth neg */
         ;
       else if(Curl_use_http_1_1plus(data, conn)) {
@@ -2434,8 +2123,7 @@ CURLcode Curl_http_body(struct Curl_easy *data, struct connectdata *conn,
   return result;
 }
 
-static CURLcode addexpect(struct Curl_easy *data, struct connectdata *conn,
-                          struct dynbuf *r)
+static CURLcode addexpect(struct Curl_easy *data, struct dynbuf *r)
 {
   data->state.expect100header = FALSE;
   /* Avoid Expect: 100-continue if Upgrade: is used */
@@ -2452,85 +2140,66 @@ static CURLcode addexpect(struct Curl_easy *data, struct connectdata *conn,
                            STRCONST("100-continue"));
     }
     else if(http->postsize > EXPECT_100_THRESHOLD || http->postsize < 0)
-      return expect100(data, conn, r);
+      return expect100(data, r);
   }
   return CURLE_OK;
 }
 
-CURLcode Curl_http_bodysend(struct Curl_easy *data, struct connectdata *conn,
-                            struct dynbuf *r, Curl_HttpReq httpreq)
+CURLcode Curl_http_req_complete(struct Curl_easy *data,
+                                struct dynbuf *r, Curl_HttpReq httpreq)
 {
-#ifndef USE_HYPER
-  /* Hyper always handles the body separately */
-  curl_off_t included_body = 0;
-#else
-  /* from this point down, this function should not be used */
-#define Curl_buffer_send(a,b,c,d,e,f) CURLE_OK
-#endif
   CURLcode result = CURLE_OK;
   struct HTTP *http = data->req.p.http;
 
+  DEBUGASSERT(data->conn);
   switch(httpreq) {
   case HTTPREQ_PUT: /* Let's PUT the data to the server! */
 
-    if(conn->bits.authneg)
+    if(data->req.authneg)
       http->postsize = 0;
     else
       http->postsize = data->state.infilesize;
 
     if((http->postsize != -1) && !data->req.upload_chunky &&
-       (conn->bits.authneg ||
+       (data->req.authneg ||
         !Curl_checkheaders(data, STRCONST("Content-Length")))) {
       /* only add Content-Length if not uploading chunked */
       result = Curl_dyn_addf(r, "Content-Length: %" CURL_FORMAT_CURL_OFF_T
                              "\r\n", http->postsize);
       if(result)
-        return result;
+        goto out;
     }
 
-    result = addexpect(data, conn, r);
+    result = addexpect(data, r);
     if(result)
-      return result;
+      goto out;
 
     /* end of headers */
     result = Curl_dyn_addn(r, STRCONST("\r\n"));
     if(result)
-      return result;
+      goto out;
 
     /* set the upload size to the progress meter */
     Curl_pgrsSetUploadSize(data, http->postsize);
-
-    /* this sends the buffer and frees all the buffer resources */
-    result = Curl_buffer_send(r, data, data->req.p.http,
-                              &data->info.request_size, 0,
-                              FIRSTSOCKET);
-    if(result)
-      failf(data, "Failed sending PUT request");
+    if(!http->postsize)
+      result = Client_reader_set_null(data);
     else
-      /* prepare for transfer */
-      Curl_setup_transfer(data, FIRSTSOCKET, -1, TRUE,
-                          http->postsize?FIRSTSOCKET:-1);
-    if(result)
-      return result;
+      result = Client_reader_set_fread(data, data->state.infilesize);
     break;
 
+#if !defined(CURL_DISABLE_MIME) || !defined(CURL_DISABLE_FORM_API)
   case HTTPREQ_POST_FORM:
   case HTTPREQ_POST_MIME:
     /* This is form posting using mime data. */
-    if(conn->bits.authneg) {
+    if(data->req.authneg) {
       /* nothing to post! */
       result = Curl_dyn_addn(r, STRCONST("Content-Length: 0\r\n\r\n"));
+      if(!result)
+        result = Client_reader_set_null(data);
       if(result)
         return result;
-
-      result = Curl_buffer_send(r, data, data->req.p.http,
-                                &data->info.request_size, 0,
-                                FIRSTSOCKET);
-      if(result)
-        failf(data, "Failed sending POST request");
-      else
-        /* setup variables for the upcoming transfer */
-        Curl_setup_transfer(data, FIRSTSOCKET, -1, TRUE, -1);
+      /* setup variables for the upcoming transfer */
+      Curl_xfer_setup(data, FIRSTSOCKET, -1, TRUE, -1);
       break;
     }
 
@@ -2547,7 +2216,7 @@ CURLcode Curl_http_bodysend(struct Curl_easy *data, struct connectdata *conn,
                              "Content-Length: %" CURL_FORMAT_CURL_OFF_T
                              "\r\n", http->postsize);
       if(result)
-        return result;
+        goto out;
     }
 
 #ifndef CURL_DISABLE_MIME
@@ -2558,47 +2227,38 @@ CURLcode Curl_http_bodysend(struct Curl_easy *data, struct connectdata *conn,
       for(hdr = data->state.mimepost->curlheaders; hdr; hdr = hdr->next) {
         result = Curl_dyn_addf(r, "%s\r\n", hdr->data);
         if(result)
-          return result;
+          goto out;
       }
     }
 #endif
 
-    result = addexpect(data, conn, r);
+    result = addexpect(data, r);
     if(result)
-      return result;
+      goto out;
 
     /* make the request end in a true CRLF */
     result = Curl_dyn_addn(r, STRCONST("\r\n"));
     if(result)
-      return result;
+      goto out;
 
     /* set the upload size to the progress meter */
     Curl_pgrsSetUploadSize(data, http->postsize);
-
-    /* Read from mime structure. */
-    data->state.fread_func = (curl_read_callback) Curl_mime_read;
-    data->state.in = (void *) data->state.mimepost;
+    if(!http->postsize)
+      result = Client_reader_set_null(data);
+    else {
+      /* Read from mime structure. We could do a special client reader
+       * for this, but replacing the callback seems to work fine. */
+      data->state.fread_func = (curl_read_callback) Curl_mime_read;
+      data->state.in = (void *) data->state.mimepost;
+      result = Client_reader_set_fread(data, data->state.infilesize);
+    }
     http->sending = HTTPSEND_BODY;
-
-    /* this sends the buffer and frees all the buffer resources */
-    result = Curl_buffer_send(r, data, data->req.p.http,
-                              &data->info.request_size, 0,
-                              FIRSTSOCKET);
-    if(result)
-      failf(data, "Failed sending POST request");
-    else
-      /* prepare for transfer */
-      Curl_setup_transfer(data, FIRSTSOCKET, -1, TRUE,
-                          http->postsize?FIRSTSOCKET:-1);
-    if(result)
-      return result;
-
     break;
-
+#endif
   case HTTPREQ_POST:
     /* this is the simple POST, using x-www-form-urlencoded style */
 
-    if(conn->bits.authneg)
+    if(data->req.authneg)
       http->postsize = 0;
     else
       /* the size of the post body */
@@ -2608,156 +2268,60 @@ CURLcode Curl_http_bodysend(struct Curl_easy *data, struct connectdata *conn,
        we don't upload data chunked, as RFC2616 forbids us to set both
        kinds of headers (Transfer-Encoding: chunked and Content-Length) */
     if((http->postsize != -1) && !data->req.upload_chunky &&
-       (conn->bits.authneg ||
+       (data->req.authneg ||
         !Curl_checkheaders(data, STRCONST("Content-Length")))) {
       /* we allow replacing this header if not during auth negotiation,
          although it isn't very wise to actually set your own */
       result = Curl_dyn_addf(r, "Content-Length: %" CURL_FORMAT_CURL_OFF_T
                              "\r\n", http->postsize);
       if(result)
-        return result;
+        goto out;
     }
 
     if(!Curl_checkheaders(data, STRCONST("Content-Type"))) {
       result = Curl_dyn_addn(r, STRCONST("Content-Type: application/"
                                          "x-www-form-urlencoded\r\n"));
       if(result)
-        return result;
+        goto out;
     }
 
-    result = addexpect(data, conn, r);
+    result = addexpect(data, r);
     if(result)
-      return result;
+      goto out;
 
-#ifndef USE_HYPER
-    /* With Hyper the body is always passed on separately */
-    if(data->set.postfields) {
-      if(!data->state.expect100header &&
-         (http->postsize < MAX_INITIAL_POST_SIZE)) {
-        /* if we don't use expect: 100  AND
-           postsize is less than MAX_INITIAL_POST_SIZE
+    result = Curl_dyn_addn(r, STRCONST("\r\n"));
+    if(result)
+      goto out;
 
-           then append the post data to the HTTP request header. This limit
-           is no magic limit but only set to prevent really huge POSTs to
-           get the data duplicated with malloc() and family. */
-
-        /* end of headers! */
-        result = Curl_dyn_addn(r, STRCONST("\r\n"));
-        if(result)
-          return result;
-
-        if(!data->req.upload_chunky) {
-          /* We're not sending it 'chunked', append it to the request
-             already now to reduce the number of send() calls */
-          result = Curl_dyn_addn(r, data->set.postfields,
-                                 (size_t)http->postsize);
-          included_body = http->postsize;
-        }
-        else {
-          if(http->postsize) {
-            char chunk[16];
-            /* Append the POST data chunky-style */
-            msnprintf(chunk, sizeof(chunk), "%x\r\n", (int)http->postsize);
-            result = Curl_dyn_add(r, chunk);
-            if(!result) {
-              included_body = http->postsize + strlen(chunk);
-              result = Curl_dyn_addn(r, data->set.postfields,
+    if(!http->postsize) {
+      Curl_pgrsSetUploadSize(data, -1);
+      result = Client_reader_set_null(data);
+    }
+    else if(data->set.postfields) {  /* we have the bytes */
+      Curl_pgrsSetUploadSize(data, http->postsize);
+      result = Client_reader_set_buf(data, data->set.postfields,
                                      (size_t)http->postsize);
-              if(!result)
-                result = Curl_dyn_addn(r, STRCONST("\r\n"));
-              included_body += 2;
-            }
-          }
-          if(!result) {
-            result = Curl_dyn_addn(r, STRCONST("\x30\x0d\x0a\x0d\x0a"));
-            /* 0  CR  LF  CR  LF */
-            included_body += 5;
-          }
-        }
-        if(result)
-          return result;
-        /* Make sure the progress information is accurate */
-        Curl_pgrsSetUploadSize(data, http->postsize);
-      }
-      else {
-        /* A huge POST coming up, do data separate from the request */
-        http->postdata = data->set.postfields;
-        http->sending = HTTPSEND_BODY;
-        http->backup.data = data;
-        data->state.fread_func = (curl_read_callback)readmoredata;
-        data->state.in = (void *)http;
-
-        /* set the upload size to the progress meter */
-        Curl_pgrsSetUploadSize(data, http->postsize);
-
-        /* end of headers! */
-        result = Curl_dyn_addn(r, STRCONST("\r\n"));
-        if(result)
-          return result;
-      }
     }
-    else
-#endif
-    {
-       /* end of headers! */
-      result = Curl_dyn_addn(r, STRCONST("\r\n"));
-      if(result)
-        return result;
-
-      if(data->req.upload_chunky && conn->bits.authneg) {
-        /* Chunky upload is selected and we're negotiating auth still, send
-           end-of-data only */
-        result = Curl_dyn_addn(r, (char *)STRCONST("\x30\x0d\x0a\x0d\x0a"));
-        /* 0  CR  LF  CR  LF */
-        if(result)
-          return result;
-      }
-
-      else if(data->state.infilesize) {
-        /* set the upload size to the progress meter */
-        Curl_pgrsSetUploadSize(data, http->postsize?http->postsize:-1);
-
-        /* set the pointer to mark that we will send the post body using the
-           read callback, but only if we're not in authenticate negotiation */
-        if(!conn->bits.authneg)
-          http->postdata = (char *)&http->postdata;
-      }
+    else { /* we read the bytes from the callback */
+      Curl_pgrsSetUploadSize(data, http->postsize);
+      result = Client_reader_set_fread(data, http->postsize);
     }
-    /* issue the request */
-    result = Curl_buffer_send(r, data, data->req.p.http,
-                              &data->info.request_size, included_body,
-                              FIRSTSOCKET);
-
-    if(result)
-      failf(data, "Failed sending HTTP POST request");
-    else
-      Curl_setup_transfer(data, FIRSTSOCKET, -1, TRUE,
-                          http->postdata?FIRSTSOCKET:-1);
+    http->sending = HTTPSEND_BODY;
     break;
 
   default:
+    /* HTTP GET/HEAD download, has no body, needs no Content-Length */
     result = Curl_dyn_addn(r, STRCONST("\r\n"));
-    if(result)
-      return result;
-
-    /* issue the request */
-    result = Curl_buffer_send(r, data, data->req.p.http,
-                              &data->info.request_size, 0,
-                              FIRSTSOCKET);
-    if(result)
-      failf(data, "Failed sending HTTP request");
-#ifdef USE_WEBSOCKETS
-    else if((conn->handler->protocol & (CURLPROTO_WS|CURLPROTO_WSS)) &&
-            !(data->set.connect_only))
-      /* Set up the transfer for two-way since without CONNECT_ONLY set, this
-         request probably wants to send data too post upgrade */
-      Curl_setup_transfer(data, FIRSTSOCKET, -1, TRUE, FIRSTSOCKET);
-#endif
-    else
-      /* HTTP GET/HEAD download: */
-      Curl_setup_transfer(data, FIRSTSOCKET, -1, TRUE, -1);
+    if(!result)
+      result = Client_reader_set_null(data);
+    break;
   }
 
+out:
+  if(!result) {
+    /* setup variables for the upcoming transfer */
+    Curl_xfer_setup(data, FIRSTSOCKET, -1, TRUE, FIRSTSOCKET);
+  }
   return result;
 }
 
@@ -3128,6 +2692,13 @@ CURLcode Curl_http(struct Curl_easy *data, bool *done)
     break;
   }
 
+  /* Add collecting of headers written to client. For a new connection,
+   * we might have done that already, but reuse
+   * or multiplex needs it here as well. */
+  result = Curl_headers_init(data);
+  if(result)
+    goto fail;
+
   http = data->req.p.http;
   DEBUGASSERT(http);
 
@@ -3314,18 +2885,16 @@ CURLcode Curl_http(struct Curl_easy *data, bool *done)
        (httpreq == HTTPREQ_HEAD))
       Curl_pgrsSetUploadSize(data, 0); /* nothing */
 
-    /* bodysend takes ownership of the 'req' memory on success */
-    result = Curl_http_bodysend(data, conn, &req, httpreq);
+    /* req_send takes ownership of the 'req' memory on success */
+    result = Curl_http_req_complete(data, &req, httpreq);
+    if(!result && data->req.upload_chunky)
+      result = Curl_httpchunk_add_reader(data);
+    if(!result)
+      result = Curl_req_send(data, &req);
   }
-  if(result) {
-    Curl_dyn_free(&req);
+  Curl_dyn_free(&req);
+  if(result)
     goto fail;
-  }
-
-  if((http->postsize > -1) &&
-     (http->postsize <= data->req.writebytecount) &&
-     (http->sending != HTTPSEND_REQUEST))
-    data->req.upload_done = TRUE;
 
   if(data->req.writebytecount) {
     /* if a request-body has been sent off, we make sure this progress is noted
@@ -4188,7 +3757,7 @@ static CURLcode http_rw_headers(struct Curl_easy *data,
         return result;
 
       if(k->httpcode >= 300) {
-        if((!conn->bits.authneg) && !conn->bits.close &&
+        if((!data->req.authneg) && !conn->bits.close &&
            !data->state.rewindbeforesend) {
           /*
            * General treatment of errors when about to send data. Including :
@@ -4556,7 +4125,7 @@ CURLcode Curl_http_write_resp(struct Curl_easy *data,
   blen -= consumed;
   buf += consumed;
   /* either all was consumed in header parsing, or we have data left
-   * and are done with heders, e.g. it is BODY data */
+   * and are done with headers, e.g. it is BODY data */
   DEBUGASSERT(!blen || !data->req.header);
   if(!data->req.header && (blen || is_eos)) {
     /* BODY data after header been parsed, write and consume */

@@ -138,6 +138,7 @@ LIB_CFILES =         \
   curl_sspi.c        \
   curl_threads.c     \
   curl_trc.c         \
+  cw-out.c           \
   dict.c             \
   doh.c              \
   dynbuf.c           \
@@ -200,6 +201,7 @@ LIB_CFILES =         \
   psl.c              \
   rand.c             \
   rename.c           \
+  request.c          \
   rtsp.c             \
   select.c           \
   sendf.c            \
@@ -283,6 +285,7 @@ LIB_HFILES =         \
   curl_threads.h     \
   curl_trc.h         \
   curlx.h            \
+  cw-out.h           \
   dict.h             \
   doh.h              \
   dynbuf.h           \
@@ -335,6 +338,7 @@ LIB_HFILES =         \
   psl.h              \
   rand.h             \
   rename.h           \
+  request.h          \
   rtsp.h             \
   select.h           \
   sendf.h            \

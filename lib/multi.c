@@ -530,6 +530,13 @@ CURLMcode curl_multi_add_handle(struct Curl_multi *multi,
     multi->dead = FALSE;
   }
 
+  if(data->multi_easy) {
+    /* if this easy handle was previously used for curl_easy_perform(), there
+       is a private multi handle here that we can kill */
+    curl_multi_cleanup(data->multi_easy);
+    data->multi_easy = NULL;
+  }
+
   /* Initialize timeout list for this handle */
   Curl_llist_init(&data->state.timeoutlist, NULL);
 
@@ -645,7 +652,7 @@ static CURLcode multi_done(struct Curl_easy *data,
                                                 after an error was detected */
                            bool premature)
 {
-  CURLcode result;
+  CURLcode result, r2;
   struct connectdata *conn = data->conn;
 
 #if defined(DEBUGBUILD) && !defined(CURL_DISABLE_VERBOSE_STRINGS)
@@ -696,14 +703,20 @@ static CURLcode multi_done(struct Curl_easy *data,
       result = CURLE_ABORTED_BY_CALLBACK;
   }
 
+  /* Make sure that transfer client writes are really done now. */
+  r2 = Curl_xfer_write_done(data, premature);
+  if(r2 && !result)
+    result = r2;
+
   /* Inform connection filters that this transfer is done */
   Curl_conn_ev_data_done(data, premature);
 
   process_pending_handles(data->multi); /* connection / multiplex */
 
-  Curl_safefree(data->state.ulbuf);
+  if(!result)
+    result = Curl_req_done(&data->req, data, premature);
 
-  Curl_client_cleanup(data);
+  Curl_safefree(data->state.ulbuf);
 
   CONNCACHE_LOCK(data);
   Curl_detach_connection(data);
@@ -1002,7 +1015,7 @@ static int connecting_getsock(struct Curl_easy *data, curl_socket_t *socks)
 {
   struct connectdata *conn = data->conn;
   (void)socks;
-  /* Not using `conn->sockfd` as `Curl_setup_transfer()` initializes
+  /* Not using `conn->sockfd` as `Curl_xfer_setup()` initializes
    * that *after* the connect. */
   if(conn && conn->sock[FIRSTSOCKET] != CURL_SOCKET_BAD) {
     /* Default is to wait to something from the server */
@@ -1812,7 +1825,9 @@ static CURLcode protocol_connect(struct Curl_easy *data,
  */
 static CURLcode readrewind(struct Curl_easy *data)
 {
+#if !defined(CURL_DISABLE_MIME) || !defined(CURL_DISABLE_FORM_API)
   curl_mimepart *mimepart = &data->set.mimepost;
+#endif
   DEBUGASSERT(data->conn);
 
   data->state.rewindbeforesend = FALSE; /* we rewind now */
@@ -1826,7 +1841,7 @@ static CURLcode readrewind(struct Curl_easy *data)
   /* We have sent away data. If not using CURLOPT_POSTFIELDS or
      CURLOPT_HTTPPOST, call app to rewind
   */
-#ifndef CURL_DISABLE_HTTP
+#if !defined(CURL_DISABLE_HTTP) && !defined(CURL_DISABLE_MIME)
   if(data->conn->handler->protocol & PROTO_FAMILY_HTTP) {
     if(data->state.mimepost)
       mimepart = data->state.mimepost;
@@ -1836,6 +1851,7 @@ static CURLcode readrewind(struct Curl_easy *data)
      (data->state.httpreq == HTTPREQ_GET) ||
      (data->state.httpreq == HTTPREQ_HEAD))
     ; /* no need to rewind */
+#if !defined(CURL_DISABLE_MIME) || !defined(CURL_DISABLE_FORM_API)
   else if(data->state.httpreq == HTTPREQ_POST_MIME ||
           data->state.httpreq == HTTPREQ_POST_FORM) {
     CURLcode result = Curl_mime_rewind(mimepart);
@@ -1844,6 +1860,7 @@ static CURLcode readrewind(struct Curl_easy *data)
       return result;
     }
   }
+#endif
   else {
     if(data->set.seek_func) {
       int err;
