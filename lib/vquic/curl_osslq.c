@@ -67,7 +67,7 @@
  * Chunk size is large enough to take a full DATA frame */
 #define H3_STREAM_WINDOW_SIZE (128 * 1024)
 #define H3_STREAM_CHUNK_SIZE   (16 * 1024)
-/* The pool keeps spares around and half of a full stream windows
+/* The pool keeps spares around and half of a full stream window
  * seems good. More does not seem to improve performance.
  * The benefit of the pool is that stream buffer to not keep
  * spares. So memory consumption goes down when streams run empty,
@@ -100,7 +100,7 @@ typedef unsigned long sslerr_t;
 static CURLcode cf_progress_ingress(struct Curl_cfilter *cf,
                                     struct Curl_easy *data);
 
-static const char *SSL_ERROR_to_str(int err)
+static const char *osslq_SSL_ERROR_to_str(int err)
 {
   switch(err) {
   case SSL_ERROR_NONE:
@@ -139,7 +139,7 @@ static const char *SSL_ERROR_to_str(int err)
 }
 
 /* Return error string for last OpenSSL error */
-static char *ossl_strerror(unsigned long error, char *buf, size_t size)
+static char *osslq_strerror(unsigned long error, char *buf, size_t size)
 {
   DEBUGASSERT(size);
   *buf = '\0';
@@ -381,8 +381,8 @@ static CURLcode cf_osslq_h3conn_add_stream(struct cf_osslq_h3conn *h3,
 }
 
 static CURLcode cf_osslq_ssl_err(struct Curl_cfilter *cf,
-                              struct Curl_easy *data,
-                              int detail, CURLcode def_result)
+                                 struct Curl_easy *data,
+                                 int detail, CURLcode def_result)
 {
   struct cf_osslq_ctx *ctx = cf->ctx;
   CURLcode result = def_result;
@@ -421,7 +421,7 @@ static CURLcode cf_osslq_ssl_err(struct Curl_cfilter *cf,
     /* If client certificate is required, communicate the
        error to client */
     result = CURLE_SSL_CLIENTCERT;
-    ossl_strerror(errdetail, ebuf, sizeof(ebuf));
+    osslq_strerror(errdetail, ebuf, sizeof(ebuf));
   }
 #endif
   else if((lib == ERR_LIB_SSL) && (reason == SSL_R_PROTOCOL_IS_SHUTDOWN)) {
@@ -431,7 +431,7 @@ static CURLcode cf_osslq_ssl_err(struct Curl_cfilter *cf,
   }
   else {
     result = def_result;
-    ossl_strerror(errdetail, ebuf, sizeof(ebuf));
+    osslq_strerror(errdetail, ebuf, sizeof(ebuf));
   }
 
   /* detail is already set to the SSL error above */
@@ -443,16 +443,14 @@ static CURLcode cf_osslq_ssl_err(struct Curl_cfilter *cf,
   if(CURLE_SSL_CONNECT_ERROR == result && errdetail == 0) {
     char extramsg[80]="";
     int sockerr = SOCKERRNO;
-    const char *r_ip = NULL;
-    int r_port = 0;
+    struct ip_quadruple ip;
 
-    Curl_cf_socket_peek(cf->next, data, NULL, NULL,
-                        &r_ip, &r_port, NULL, NULL);
+    Curl_cf_socket_peek(cf->next, data, NULL, NULL, &ip);
     if(sockerr && detail == SSL_ERROR_SYSCALL)
       Curl_strerror(sockerr, extramsg, sizeof(extramsg));
     failf(data, "QUIC connect: %s in connection to %s:%d (%s)",
-          extramsg[0] ? extramsg : SSL_ERROR_to_str(detail),
-          ctx->peer.dispname, r_port, r_ip);
+          extramsg[0] ? extramsg : osslq_SSL_ERROR_to_str(detail),
+          ctx->peer.dispname, ip.remote_port, ip.remote_ip);
   }
   else {
     /* Could be a CERT problem */
@@ -976,7 +974,7 @@ static nghttp3_callbacks ngh3_callbacks = {
 };
 
 static CURLcode cf_osslq_h3conn_init(struct cf_osslq_ctx *ctx, SSL *conn,
-                                  void *user_data)
+                                     void *user_data)
 {
   struct cf_osslq_h3conn *h3 = &ctx->h3;
   CURLcode result;
@@ -1039,7 +1037,6 @@ static CURLcode cf_osslq_ctx_start(struct Curl_cfilter *cf,
   CURLcode result;
   int rv;
   const struct Curl_sockaddr_ex *peer_addr = NULL;
-  int peer_port;
   BIO *bio = NULL;
   BIO_ADDR *baddr = NULL;
 
@@ -1061,8 +1058,7 @@ static CURLcode cf_osslq_ctx_start(struct Curl_cfilter *cf,
     goto out;
 
   result = CURLE_QUIC_CONNECT_ERROR;
-  Curl_cf_socket_peek(cf->next, data, &ctx->q.sockfd,
-                      &peer_addr, NULL, &peer_port, NULL, NULL);
+  Curl_cf_socket_peek(cf->next, data, &ctx->q.sockfd, &peer_addr, NULL);
   if(!peer_addr)
     goto out;
 
@@ -1083,7 +1079,7 @@ static CURLcode cf_osslq_ctx_start(struct Curl_cfilter *cf,
    */
 #if defined(_WIN32) && !defined(__LWIP_OPT_H__) && !defined(LWIP_HDR_OPT_H)
   if(ctx->q.sockfd > INT_MAX) {
-    failf(data, "windows socket identifier larger than MAX_INT, "
+    failf(data, "Windows socket identifier larger than MAX_INT, "
           "unable to set in OpenSSL dgram API.");
     result = CURLE_QUIC_CONNECT_ERROR;
     goto out;
@@ -1092,7 +1088,6 @@ static CURLcode cf_osslq_ctx_start(struct Curl_cfilter *cf,
 #else
   bio = BIO_new_dgram(ctx->q.sockfd, BIO_NOCLOSE);
 #endif
-  bio = BIO_new_dgram(ctx->q.sockfd, BIO_NOCLOSE);
   if(!bio) {
     result = CURLE_OUT_OF_MEMORY;
     goto out;
@@ -1170,7 +1165,7 @@ static ssize_t h3_quic_recv(void *reader_ctx,
       SSL_get_stream_read_error_code(x->s->ssl, &app_error_code);
       CURL_TRC_CF(x->data, x->cf, "[%" PRId64 "] h3_quic_recv -> RESET, "
                   "rv=%d, app_err=%" PRIu64,
-                   x->s->id, rv, app_error_code);
+                  x->s->id, rv, app_error_code);
       if(app_error_code != NGHTTP3_H3_NO_ERROR) {
         x->s->reset = TRUE;
       }
@@ -1443,7 +1438,7 @@ static CURLcode h3_send_streams(struct Curl_cfilter *cf,
         case SSL_ERROR_WANT_READ:
           /* QUIC blocked us from writing more */
           CURL_TRC_CF(data, cf, "[%"PRId64"] send %zu bytes to QUIC blocked",
-                s->id, vec[i].len);
+                      s->id, vec[i].len);
           written = 0;
           nghttp3_conn_block_stream(ctx->h3.conn, s->id);
           s->send_blocked = blocked = TRUE;
@@ -1658,13 +1653,11 @@ out:
 
 #ifndef CURL_DISABLE_VERBOSE_STRINGS
   if(result) {
-    const char *r_ip = NULL;
-    int r_port = 0;
+    struct ip_quadruple ip;
 
-    Curl_cf_socket_peek(cf->next, data, NULL, NULL,
-                        &r_ip, &r_port, NULL, NULL);
+    Curl_cf_socket_peek(cf->next, data, NULL, NULL, &ip);
     infof(data, "QUIC connect to %s port %u failed: %s",
-          r_ip, r_port, curl_easy_strerror(result));
+          ip.remote_ip, ip.remote_port, curl_easy_strerror(result));
   }
 #endif
   if(!result)

@@ -273,7 +273,7 @@ static CURLcode ftp_cw_lc_write(struct Curl_easy *data,
                                 const char *buf, size_t blen)
 {
   static const char nl = '\n';
-  struct ftp_cw_lc_ctx *ctx = (struct ftp_cw_lc_ctx *)writer;
+  struct ftp_cw_lc_ctx *ctx = writer->ctx;
 
   if(!(type & CLIENTWRITE_BODY) ||
      data->conn->proto.ftpc.transfertype != 'A')
@@ -1683,10 +1683,10 @@ static CURLcode ftp_state_ul_setup(struct Curl_easy *data,
     append = TRUE;
 
     /* Let's read off the proper amount of bytes from the input. */
-    if(conn->seek_func) {
+    if(data->set.seek_func) {
       Curl_set_in_callback(data, true);
-      seekerr = conn->seek_func(conn->seek_client, data->state.resume_from,
-                                SEEK_SET);
+      seekerr = data->set.seek_func(data->set.seek_client,
+                                    data->state.resume_from, SEEK_SET);
       Curl_set_in_callback(data, false);
     }
 
@@ -1903,7 +1903,7 @@ static char *control_address(struct connectdata *conn)
   if(conn->bits.tunnel_proxy || conn->bits.socksproxy)
     return conn->host.name;
 #endif
-  return conn->primary_ip;
+  return conn->primary.remote_ip;
 }
 
 static bool match_pasv_6nums(const char *p,
@@ -2040,14 +2040,14 @@ static CURLcode ftp_state_pasv_resp(struct Curl_easy *data,
      */
     const char * const host_name = conn->bits.socksproxy ?
       conn->socks_proxy.host.name : conn->http_proxy.host.name;
-    rc = Curl_resolv(data, host_name, conn->port, FALSE, &addr);
+    rc = Curl_resolv(data, host_name, conn->primary.remote_port, FALSE, &addr);
     if(rc == CURLRESOLV_PENDING)
       /* BLOCKING, ignores the return code but 'addr' will be NULL in
          case of failure */
       (void)Curl_resolver_wait_resolv(data, &addr);
 
-    connectport =
-      (unsigned short)conn->port; /* we connect to the proxy's port */
+    /* we connect to the proxy's port */
+    connectport = (unsigned short)conn->primary.remote_port;
 
     if(!addr) {
       failf(data, "Can't resolve proxy host %s:%hu", host_name, connectport);
