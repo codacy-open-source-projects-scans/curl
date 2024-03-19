@@ -102,6 +102,9 @@
  */
 
 static bool http_should_fail(struct Curl_easy *data);
+static bool http_exp100_is_waiting(struct Curl_easy *data);
+static CURLcode http_exp100_add_reader(struct Curl_easy *data);
+static void http_exp100_send_anyway(struct Curl_easy *data);
 
 /*
  * HTTP handler interface.
@@ -405,123 +408,88 @@ static bool pickoneauth(struct auth *pick, unsigned long mask)
 /*
  * http_perhapsrewind()
  *
- * If we are doing POST or PUT {
- *   If we have more data to send {
- *     If we are doing NTLM {
- *       Keep sending since we must not disconnect
- *     }
- *     else {
- *       If there is more than just a little data left to send, close
- *       the current connection by force.
- *     }
- *   }
- *   If we have sent any data {
- *     If we don't have track of all the data {
- *       call app to tell it to rewind
- *     }
- *     else {
- *       rewind internally so that the operation can restart fine
- *     }
- *   }
- * }
+ * The current request needs to be done again - maybe due to a follow
+ * or authentication negotiation. Check if:
+ * 1) a rewind of the data sent to the server is necessary
+ * 2) the current transfer should continue or be stopped early
  */
 static CURLcode http_perhapsrewind(struct Curl_easy *data,
                                    struct connectdata *conn)
 {
-  struct HTTP *http = data->req.p.http;
-  curl_off_t bytessent;
+  curl_off_t bytessent = data->req.writebytecount;
   curl_off_t expectsend = Curl_creader_total_length(data);
+  curl_off_t upload_remain = (expectsend >= 0)? (expectsend - bytessent) : -1;
+  bool little_upload_remains = (upload_remain >= 0 && upload_remain < 2000);
+  bool needs_rewind = Curl_creader_needs_rewind(data);
+  /* By default, we'd like to abort the transfer when little or
+   * unknown amount remains. But this may be overridden by authentications
+   * further below! */
+  bool abort_upload = (!data->req.upload_done && !little_upload_remains);
+  const char *ongoing_auth = NULL;
 
-  if(!http)
-    /* If this is still NULL, we have not reach very far and we can safely
-       skip this rewinding stuff */
+  /* We need a rewind before uploading client read data again. The
+   * checks below just influence of the upload is to be continued
+   * or aborted early.
+   * This depends on how much remains to be sent and in what state
+   * the authentication is. Some auth schemes such as NTLM do not work
+   * for a new connection. */
+  if(needs_rewind) {
+    infof(data, "Need to rewind upload for next request");
+    Curl_creader_set_rewind(data, TRUE);
+  }
+
+  if(conn->bits.close)
+    /* If we already decided to close this connection, we cannot veto. */
     return CURLE_OK;
 
-  if(!expectsend)
-    /* not sending any body */
-    return CURLE_OK;
-
-  if(!conn->bits.protoconnstart)
-    /* HTTP CONNECT in progress: there is no body */
-    expectsend = 0;
-
-  bytessent = data->req.writebytecount;
-  Curl_creader_set_rewind(data, FALSE);
-
-  if((expectsend == -1) || (expectsend > bytessent)) {
+  if(abort_upload) {
+    /* We'd like to abort the upload - but should we? */
 #if defined(USE_NTLM)
-    /* There is still data left to send */
     if((data->state.authproxy.picked == CURLAUTH_NTLM) ||
        (data->state.authhost.picked == CURLAUTH_NTLM) ||
        (data->state.authproxy.picked == CURLAUTH_NTLM_WB) ||
        (data->state.authhost.picked == CURLAUTH_NTLM_WB)) {
-      if(((expectsend - bytessent) < 2000) ||
-         (conn->http_ntlm_state != NTLMSTATE_NONE) ||
+      ongoing_auth = "NTML";
+      if((conn->http_ntlm_state != NTLMSTATE_NONE) ||
          (conn->proxy_ntlm_state != NTLMSTATE_NONE)) {
-        /* The NTLM-negotiation has started *OR* there is just a little (<2K)
-           data left to send, keep on sending. */
-
-        /* rewind data when completely done sending! */
-        if(!data->req.authneg && (conn->writesockfd != CURL_SOCKET_BAD)) {
-          Curl_creader_set_rewind(data, TRUE);
-          infof(data, "Rewind stream before next send");
-        }
-
-        return CURLE_OK;
+        /* The NTLM-negotiation has started, keep on sending.
+         * Need to do further work on same connection */
+        abort_upload = FALSE;
       }
-
-      if(conn->bits.close)
-        /* this is already marked to get closed */
-        return CURLE_OK;
-
-      infof(data, "NTLM send, close instead of sending %"
-            CURL_FORMAT_CURL_OFF_T " bytes",
-            (curl_off_t)(expectsend - bytessent));
     }
 #endif
 #if defined(USE_SPNEGO)
     /* There is still data left to send */
     if((data->state.authproxy.picked == CURLAUTH_NEGOTIATE) ||
        (data->state.authhost.picked == CURLAUTH_NEGOTIATE)) {
-      if(((expectsend - bytessent) < 2000) ||
-         (conn->http_negotiate_state != GSS_AUTHNONE) ||
+      ongoing_auth = "NEGOTIATE";
+      if((conn->http_negotiate_state != GSS_AUTHNONE) ||
          (conn->proxy_negotiate_state != GSS_AUTHNONE)) {
-        /* The NEGOTIATE-negotiation has started *OR*
-        there is just a little (<2K) data left to send, keep on sending. */
-
-        /* rewind data when completely done sending! */
-        if(!data->req.authneg && (conn->writesockfd != CURL_SOCKET_BAD)) {
-          Curl_creader_set_rewind(data, TRUE);
-          infof(data, "Rewind stream before next send");
-        }
-
-        return CURLE_OK;
+        /* The NEGOTIATE-negotiation has started, keep on sending.
+         * Need to do further work on same connection */
+        abort_upload = FALSE;
       }
-
-      if(conn->bits.close)
-        /* this is already marked to get closed */
-        return CURLE_OK;
-
-      infof(data, "NEGOTIATE send, close instead of sending %"
-        CURL_FORMAT_CURL_OFF_T " bytes",
-        (curl_off_t)(expectsend - bytessent));
     }
 #endif
+  }
 
-    /* This is not NEGOTIATE/NTLM or many bytes left to send: close */
+  if(abort_upload) {
+    if(upload_remain >= 0)
+      infof(data, "%s%sclose instead of sending %"
+        CURL_FORMAT_CURL_OFF_T " more bytes",
+        ongoing_auth? ongoing_auth : "",
+        ongoing_auth? " send, " : "",
+        upload_remain);
+    else
+      infof(data, "%s%sclose instead of sending unknown amount "
+        "of more bytes",
+        ongoing_auth? ongoing_auth : "",
+        ongoing_auth? " send, " : "");
+    /* We decided to abort the ongoing transfer */
     streamclose(conn, "Mid-auth HTTP and much data left to send");
+    /* FIXME: questionable manipulation here, can we do this differently? */
     data->req.size = 0; /* don't download any more than 0 bytes */
-
-    /* There still is data left to send, but this connection is marked for
-       closure so we can safely do the rewind right now */
   }
-
-  if(Curl_creader_needs_rewind(data)) {
-    /* mark for rewind since if we already sent something */
-    Curl_creader_set_rewind(data, TRUE);
-    infof(data, "Please rewind output before next send");
-  }
-
   return CURLE_OK;
 }
 
@@ -575,13 +543,10 @@ CURLcode Curl_http_auth_act(struct Curl_easy *data)
 #endif
 
   if(pickhost || pickproxy) {
-    if((data->state.httpreq != HTTPREQ_GET) &&
-       (data->state.httpreq != HTTPREQ_HEAD) &&
-       !Curl_creader_will_rewind(data)) {
-      result = http_perhapsrewind(data, conn);
-      if(result)
-        return result;
-    }
+    result = http_perhapsrewind(data, conn);
+    if(result)
+      return result;
+
     /* In case this is GSS auth, the newurl field is already allocated so
        we must make sure to free it before allocating a new one. As figured
        out in bug #2284386 */
@@ -1312,31 +1277,6 @@ static const char *get_http_string(const struct Curl_easy *data,
   return "1.0";
 }
 #endif
-
-/* check and possibly add an Expect: header */
-static CURLcode expect100(struct Curl_easy *data, struct dynbuf *req)
-{
-  CURLcode result = CURLE_OK;
-  if(!data->state.disableexpect &&
-     Curl_use_http_1_1plus(data, data->conn) &&
-     (data->conn->httpversion < 20)) {
-    /* if not doing HTTP 1.0 or version 2, or disabled explicitly, we add an
-       Expect: 100-continue to the headers which actually speeds up post
-       operations (as there is one packet coming back from the web server) */
-    const char *ptr = Curl_checkheaders(data, STRCONST("Expect"));
-    if(ptr) {
-      data->state.expect100header =
-        Curl_compareheader(ptr, STRCONST("Expect:"), STRCONST("100-continue"));
-    }
-    else {
-      result = Curl_dyn_addn(req, STRCONST("Expect: 100-continue\r\n"));
-      if(!result)
-        data->state.expect100header = TRUE;
-    }
-  }
-
-  return result;
-}
 
 enum proxy_use {
   HEADER_SERVER,  /* direct to server */
@@ -2202,26 +2142,39 @@ CURLcode Curl_http_req_set_reader(struct Curl_easy *data,
   return result;
 }
 
-static CURLcode addexpect(struct Curl_easy *data, struct dynbuf *r)
+static CURLcode addexpect(struct Curl_easy *data, struct dynbuf *r,
+                          bool *announced_exp100)
 {
-  data->state.expect100header = FALSE;
+  CURLcode result;
+  char *ptr;
+
+  *announced_exp100 = FALSE;
   /* Avoid Expect: 100-continue if Upgrade: is used */
-  if(data->req.upgr101 == UPGR101_INIT) {
-    /* For really small puts we don't use Expect: headers at all, and for
-       the somewhat bigger ones we allow the app to disable it. Just make
-       sure that the expect100header is always set to the preferred value
-       here. */
-    char *ptr = Curl_checkheaders(data, STRCONST("Expect"));
-    if(ptr) {
-      data->state.expect100header =
-        Curl_compareheader(ptr, STRCONST("Expect:"),
-                           STRCONST("100-continue"));
+  if(data->req.upgr101 != UPGR101_INIT)
+    return CURLE_OK;
+
+  /* For really small puts we don't use Expect: headers at all, and for
+     the somewhat bigger ones we allow the app to disable it. Just make
+     sure that the expect100header is always set to the preferred value
+     here. */
+  ptr = Curl_checkheaders(data, STRCONST("Expect"));
+  if(ptr) {
+    *announced_exp100 =
+      Curl_compareheader(ptr, STRCONST("Expect:"), STRCONST("100-continue"));
+  }
+  else if(!data->state.disableexpect &&
+          Curl_use_http_1_1plus(data, data->conn) &&
+          (data->conn->httpversion < 20)) {
+    /* if not doing HTTP 1.0 or version 2, or disabled explicitly, we add an
+       Expect: 100-continue to the headers which actually speeds up post
+       operations (as there is one packet coming back from the web server) */
+    curl_off_t client_len = Curl_creader_client_length(data);
+    if(client_len > EXPECT_100_THRESHOLD || client_len < 0) {
+      result = Curl_dyn_addn(r, STRCONST("Expect: 100-continue\r\n"));
+      if(result)
+        return result;
+      *announced_exp100 = TRUE;
     }
-    else {
-      curl_off_t client_len = Curl_creader_client_length(data);
-      if(client_len > EXPECT_100_THRESHOLD || client_len < 0)
-        return expect100(data, r);
-      }
   }
   return CURLE_OK;
 }
@@ -2231,6 +2184,7 @@ CURLcode Curl_http_req_complete(struct Curl_easy *data,
 {
   CURLcode result = CURLE_OK;
   curl_off_t req_clen;
+  bool announced_exp100 = FALSE;
 
   DEBUGASSERT(data->conn);
 #ifndef USE_HYPER
@@ -2289,7 +2243,7 @@ CURLcode Curl_http_req_complete(struct Curl_easy *data,
           goto out;
       }
     }
-    result = addexpect(data, r);
+    result = addexpect(data, r, &announced_exp100);
     if(result)
       goto out;
     break;
@@ -2300,6 +2254,8 @@ CURLcode Curl_http_req_complete(struct Curl_easy *data,
   /* end of headers */
   result = Curl_dyn_addn(r, STRCONST("\r\n"));
   Curl_pgrsSetUploadSize(data, req_clen);
+  if(announced_exp100)
+    result = http_exp100_add_reader(data);
 
 out:
   if(!result) {
@@ -2446,19 +2402,17 @@ CURLcode Curl_http_range(struct Curl_easy *data,
   return CURLE_OK;
 }
 
-CURLcode Curl_http_firstwrite(struct Curl_easy *data,
-                              struct connectdata *conn,
-                              bool *done)
+CURLcode Curl_http_firstwrite(struct Curl_easy *data)
 {
+  struct connectdata *conn = data->conn;
   struct SingleRequest *k = &data->req;
 
-  *done = FALSE;
   if(data->req.newurl) {
     if(conn->bits.close) {
       /* Abort after the headers if "follow Location" is set
          and we're set to close anyway. */
       k->keepon &= ~KEEP_RECV;
-      *done = TRUE;
+      k->done = TRUE;
       return CURLE_OK;
     }
     /* We have a new url to load, but since we want to be able to reuse this
@@ -2477,7 +2431,7 @@ CURLcode Curl_http_firstwrite(struct Curl_easy *data,
       streamclose(conn, "already downloaded");
       /* Abort download */
       k->keepon &= ~KEEP_RECV;
-      *done = TRUE;
+      k->done = TRUE;
       return CURLE_OK;
     }
 
@@ -2495,7 +2449,7 @@ CURLcode Curl_http_firstwrite(struct Curl_easy *data,
        action for an HTTP/1.1 client */
 
     if(!Curl_meets_timecondition(data, k->timeofdoc)) {
-      *done = TRUE;
+      k->done = TRUE;
       /* We're simulating an HTTP 304 from server so we return
          what should have been returned from the server */
       data->info.httpcode = 304;
@@ -3474,11 +3428,7 @@ static CURLcode http_rw_headers(struct Curl_easy *data,
           k->headerline = 0; /* restart the header line counter */
 
           /* if we did wait for this do enable write now! */
-          if(k->exp100 > EXP100_SEND_DATA) {
-            k->exp100 = EXP100_SEND_DATA;
-            k->keepon |= KEEP_SEND;
-            Curl_expire_done(data, EXPIRE_100_TIMEOUT);
-          }
+          Curl_http_exp100_got100(data);
           break;
         case 101:
           if(conn->httpversion == 11) {
@@ -3657,13 +3607,11 @@ static CURLcode http_rw_headers(struct Curl_easy *data,
              * request body has been sent we stop sending and mark the
              * connection for closure after we've read the entire response.
              */
-            Curl_expire_done(data, EXPIRE_100_TIMEOUT);
             if(!Curl_req_done_sending(data)) {
-              if((k->httpcode == 417) && data->state.expect100header) {
+              if((k->httpcode == 417) && Curl_http_exp100_is_selected(data)) {
                 /* 417 Expectation Failed - try again without the Expect
                    header */
-                if(!k->writebytecount &&
-                   k->exp100 == EXP100_AWAITING_CONTINUE) {
+                if(!k->writebytecount && http_exp100_is_waiting(data)) {
                   infof(data, "Got HTTP failure 417 while waiting for a 100");
                 }
                 else {
@@ -3681,10 +3629,7 @@ static CURLcode http_rw_headers(struct Curl_easy *data,
               }
               else if(data->set.http_keep_sending_on_error) {
                 infof(data, "HTTP error before end of send, keep sending");
-                if(k->exp100 > EXP100_SEND_DATA) {
-                  k->exp100 = EXP100_SEND_DATA;
-                  k->keepon |= KEEP_SEND;
-                }
+                http_exp100_send_anyway(data);
               }
               else {
                 infof(data, "HTTP error before end of send, stop sending");
@@ -3692,8 +3637,6 @@ static CURLcode http_rw_headers(struct Curl_easy *data,
                 result = Curl_req_abort_sending(data);
                 if(result)
                   return result;
-                if(data->state.expect100header)
-                  k->exp100 = EXP100_FAILED;
               }
             }
             break;
@@ -3951,10 +3894,8 @@ out:
  */
 CURLcode Curl_http_write_resp_hds(struct Curl_easy *data,
                                   const char *buf, size_t blen,
-                                  size_t *pconsumed,
-                                  bool *done)
+                                  size_t *pconsumed)
 {
-  *done = FALSE;
   if(!data->req.header) {
     *pconsumed = 0;
     return CURLE_OK;
@@ -3965,7 +3906,7 @@ CURLcode Curl_http_write_resp_hds(struct Curl_easy *data,
     result = http_rw_headers(data, buf, blen, pconsumed);
     if(!result && !data->req.header) {
       /* we have successfully finished parsing the HEADERs */
-      result = Curl_http_firstwrite(data, data->conn, done);
+      result = Curl_http_firstwrite(data);
 
       if(!data->req.no_body && Curl_dyn_len(&data->state.headerb)) {
         /* leftover from parsing something that turned out not
@@ -3983,16 +3924,14 @@ CURLcode Curl_http_write_resp_hds(struct Curl_easy *data,
 
 CURLcode Curl_http_write_resp(struct Curl_easy *data,
                               const char *buf, size_t blen,
-                              bool is_eos,
-                              bool *done)
+                              bool is_eos)
 {
   CURLcode result;
   size_t consumed;
   int flags;
 
-  *done = FALSE;
-  result = Curl_http_write_resp_hds(data, buf, blen, &consumed, done);
-  if(result || *done)
+  result = Curl_http_write_resp_hds(data, buf, blen, &consumed);
+  if(result || data->req.done)
     goto out;
 
   DEBUGASSERT(consumed <= blen);
@@ -4379,6 +4318,144 @@ void Curl_http_resp_free(struct http_resp *resp)
       Curl_http_resp_free(resp->prev);
     free(resp);
   }
+}
+
+struct cr_exp100_ctx {
+  struct Curl_creader super;
+  struct curltime start; /* time started waiting */
+  enum expect100 state;
+};
+
+/* Expect: 100-continue client reader, blocking uploads */
+
+static void http_exp100_continue(struct Curl_easy *data,
+                                 struct Curl_creader *reader)
+{
+  struct cr_exp100_ctx *ctx = reader->ctx;
+  if(ctx->state > EXP100_SEND_DATA) {
+    ctx->state = EXP100_SEND_DATA;
+    data->req.keepon |= KEEP_SEND;
+    data->req.keepon &= ~KEEP_SEND_TIMED;
+    Curl_expire_done(data, EXPIRE_100_TIMEOUT);
+  }
+}
+
+static CURLcode cr_exp100_read(struct Curl_easy *data,
+                               struct Curl_creader *reader,
+                               char *buf, size_t blen,
+                               size_t *nread, bool *eos)
+{
+  struct cr_exp100_ctx *ctx = reader->ctx;
+  timediff_t ms;
+
+  switch(ctx->state) {
+  case EXP100_SENDING_REQUEST:
+    /* We are now waiting for a reply from the server or
+     * a timeout on our side */
+    DEBUGF(infof(data, "cr_exp100_read, start AWAITING_CONTINUE"));
+    ctx->state = EXP100_AWAITING_CONTINUE;
+    ctx->start = Curl_now();
+    Curl_expire(data, data->set.expect_100_timeout, EXPIRE_100_TIMEOUT);
+    data->req.keepon &= ~KEEP_SEND;
+    data->req.keepon |= KEEP_SEND_TIMED;
+    *nread = 0;
+    *eos = FALSE;
+    return CURLE_OK;
+  case EXP100_FAILED:
+    DEBUGF(infof(data, "cr_exp100_read, expectation failed, error"));
+    *nread = 0;
+    *eos = FALSE;
+    return CURLE_READ_ERROR;
+  case EXP100_AWAITING_CONTINUE:
+    ms = Curl_timediff(Curl_now(), ctx->start);
+    if(ms < data->set.expect_100_timeout) {
+      DEBUGF(infof(data, "cr_exp100_read, AWAITING_CONTINUE, not expired"));
+      data->req.keepon &= ~KEEP_SEND;
+      data->req.keepon |= KEEP_SEND_TIMED;
+      *nread = 0;
+      *eos = FALSE;
+      return CURLE_OK;
+    }
+    /* we've waited long enough, continue anyway */
+    http_exp100_continue(data, reader);
+    infof(data, "Done waiting for 100-continue");
+    FALLTHROUGH();
+  default:
+    DEBUGF(infof(data, "cr_exp100_read, pass through"));
+    return Curl_creader_read(data, reader->next, buf, blen, nread, eos);
+  }
+}
+
+static void cr_exp100_done(struct Curl_easy *data,
+                           struct Curl_creader *reader, int premature)
+{
+  struct cr_exp100_ctx *ctx = reader->ctx;
+  ctx->state = premature? EXP100_FAILED : EXP100_SEND_DATA;
+  data->req.keepon &= ~KEEP_SEND_TIMED;
+  Curl_expire_done(data, EXPIRE_100_TIMEOUT);
+}
+
+static const struct Curl_crtype cr_exp100 = {
+  "cr-exp100",
+  Curl_creader_def_init,
+  cr_exp100_read,
+  Curl_creader_def_close,
+  Curl_creader_def_needs_rewind,
+  Curl_creader_def_total_length,
+  Curl_creader_def_resume_from,
+  Curl_creader_def_rewind,
+  Curl_creader_def_unpause,
+  cr_exp100_done,
+  sizeof(struct cr_exp100_ctx)
+};
+
+static CURLcode http_exp100_add_reader(struct Curl_easy *data)
+{
+  struct Curl_creader *reader = NULL;
+  CURLcode result;
+
+  result = Curl_creader_create(&reader, data, &cr_exp100,
+                               CURL_CR_PROTOCOL);
+  if(!result)
+    result = Curl_creader_add(data, reader);
+  if(!result) {
+    struct cr_exp100_ctx *ctx = reader->ctx;
+    ctx->state = EXP100_SENDING_REQUEST;
+  }
+
+  if(result && reader)
+    Curl_creader_free(data, reader);
+  return result;
+}
+
+void Curl_http_exp100_got100(struct Curl_easy *data)
+{
+  struct Curl_creader *r = Curl_creader_get_by_type(data, &cr_exp100);
+  if(r)
+    http_exp100_continue(data, r);
+}
+
+static bool http_exp100_is_waiting(struct Curl_easy *data)
+{
+  struct Curl_creader *r = Curl_creader_get_by_type(data, &cr_exp100);
+  if(r) {
+    struct cr_exp100_ctx *ctx = r->ctx;
+    return (ctx->state == EXP100_AWAITING_CONTINUE);
+  }
+  return FALSE;
+}
+
+static void http_exp100_send_anyway(struct Curl_easy *data)
+{
+  struct Curl_creader *r = Curl_creader_get_by_type(data, &cr_exp100);
+  if(r)
+    http_exp100_continue(data, r);
+}
+
+bool Curl_http_exp100_is_selected(struct Curl_easy *data)
+{
+  struct Curl_creader *r = Curl_creader_get_by_type(data, &cr_exp100);
+  return r? TRUE : FALSE;
 }
 
 #endif /* CURL_DISABLE_HTTP */
