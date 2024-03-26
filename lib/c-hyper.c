@@ -171,7 +171,7 @@ static int hyper_each_header(void *userdata,
   len = Curl_dyn_len(&data->state.headerb);
   headp = Curl_dyn_ptr(&data->state.headerb);
 
-  result = Curl_http_header(data, data->conn, headp);
+  result = Curl_http_header(data, data->conn, headp, len);
   if(result) {
     data->state.hresult = result;
     return HYPER_ITER_BREAK;
@@ -274,14 +274,13 @@ static CURLcode status_line(struct Curl_easy *data,
   /* We need to set 'httpcodeq' for functions that check the response code in
      a single place. */
   data->req.httpcode = http_status;
-
+  data->req.httpversion = http_version == HYPER_HTTP_VERSION_1_1? 11 :
+                          (http_version == HYPER_HTTP_VERSION_2 ? 20 : 10);
   if(data->state.hconnect)
     /* CONNECT */
     data->info.httpproxycode = http_status;
   else {
-    conn->httpversion =
-      http_version == HYPER_HTTP_VERSION_1_1 ? 11 :
-      (http_version == HYPER_HTTP_VERSION_2 ? 20 : 10);
+    conn->httpversion = (unsigned char)data->req.httpversion;
     if(http_version == HYPER_HTTP_VERSION_1_0)
       data->state.httpwant = CURL_HTTP_VERSION_1_0;
 
