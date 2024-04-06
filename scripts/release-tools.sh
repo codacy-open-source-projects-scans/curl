@@ -1,3 +1,4 @@
+#!/bin/sh
 #***************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
@@ -22,13 +23,45 @@
 #
 ###########################################################################
 
-# These are all libcurl example programs to be test compiled
-check_PROGRAMS = \
-  h2-serverpush \
-  h2-download \
-  ws-data \
-  ws-pingpong \
-  h2-upgrade-extreme \
-  tls-session-reuse \
-  h2-pausing \
-  upload-pausing
+cat <<MOO
+# Release tools
+
+The following tools and their Debian package version numbers were used to
+produce this release tarball.
+
+MOO
+
+exists=`which dpkg`;
+if test ! -e "$exists"; then
+    echo "(unknown, could not find dpkg)"
+    exit
+fi
+
+debian() {
+    echo - $1: `dpkg -l $1 | grep ^ii | awk '{print $3}'`
+}
+debian autoconf
+debian automake
+debian libtool
+debian make
+debian perl
+debian git
+
+cat <<MOO
+
+# Reproduce the tarball
+
+- Clone the repo and checkout the release tag
+- Install the same set of tools + versions as listed above
+
+## Do a standard build
+
+- autoreconf -fi
+- ./configure [...]
+- make
+
+## Generate the tarball
+
+- ./maketgz [version]
+
+MOO
