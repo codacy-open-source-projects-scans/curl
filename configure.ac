@@ -2498,10 +2498,6 @@ AC_SUBST([CURL_LT_SHLIB_VERSIONED_FLAVOUR],
 AM_CONDITIONAL([CURL_LT_SHLIB_USE_VERSIONED_SYMBOLS],
   [test "x$versioned_symbols" = 'xyes'])
 
-dnl Update .plist file with current version
-AC_SUBST([CURL_PLIST_VERSION],
-  ["$CURLVERSION"])
-
 dnl -------------------------------------------------
 dnl check winidn option before other IDN libraries
 dnl -------------------------------------------------
@@ -3988,6 +3984,12 @@ if test "$want_thres" = "yes" && test "x$USE_THREADS_POSIX" != "x1"; then
   fi
 fi
 
+AC_CHECK_HEADER(dirent.h,
+  [ AC_DEFINE(HAVE_DIRENT_H, 1, [if you have <dirent.h>])
+    AC_CHECK_FUNC(opendir, AC_DEFINE(HAVE_OPENDIR, 1, [if you have opendir]) )
+  ]
+)
+
 CURL_CONVERT_INCLUDE_TO_ISYSTEM
 
 dnl ************************************************************
@@ -4178,10 +4180,6 @@ AS_HELP_STRING([--disable-ntlm],[Disable NTLM support]),
   esac ],
        AC_MSG_RESULT(yes)
 )
-
-CURL_CHECK_OPTION_NTLM_WB
-
-CURL_CHECK_NTLM_WB
 
 dnl ************************************************************
 dnl disable TLS-SRP authentication
@@ -4729,11 +4727,6 @@ if test "x$CURL_DISABLE_NTLM" != "x1"; then
   if test "x$use_curl_ntlm_core" = "xyes" \
       -o "x$USE_WINDOWS_SSPI" = "x1"; then
     SUPPORT_FEATURES="$SUPPORT_FEATURES NTLM"
-
-    if test "x$CURL_DISABLE_HTTP" != "x1" -a \
-        "x$NTLM_WB_ENABLED" = "x1"; then
-      SUPPORT_FEATURES="$SUPPORT_FEATURES NTLM_WB"
-    fi
   fi
 fi
 
@@ -4951,7 +4944,6 @@ AC_CONFIG_FILES([Makefile \
            lib/Makefile \
            scripts/Makefile \
            lib/libcurl.vers \
-           lib/libcurl.plist \
            tests/Makefile \
            tests/config \
            tests/certs/Makefile \

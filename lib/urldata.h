@@ -104,7 +104,7 @@ typedef unsigned int curl_prot_t;
 #define PROTO_FAMILY_SSH  (CURLPROTO_SCP|CURLPROTO_SFTP)
 
 #if !defined(CURL_DISABLE_FTP) || defined(USE_SSH) ||   \
-  !defined(CURL_DISABLE_POP3)
+  !defined(CURL_DISABLE_POP3) || !defined(CURL_DISABLE_FILE)
 /* these protocols support CURLOPT_DIRLISTONLY */
 #define CURL_LIST_ONLY_PROTOCOL 1
 #endif
@@ -279,6 +279,8 @@ struct ssl_peer {
   char *dispname;        /* display version of hostname */
   char *sni;             /* SNI version of hostname or NULL if not usable */
   ssl_peer_type type;    /* type of the peer information */
+  int port;              /* port we are talking to */
+  int transport;         /* TCP or QUIC */
 };
 
 struct ssl_primary_config {
@@ -344,6 +346,7 @@ struct Curl_ssl_session {
   long age;         /* just a number, the higher the more recent */
   int remote_port;  /* remote port */
   int conn_to_port; /* remote port for the connection (may be -1) */
+  int transport;    /* TCP or QUIC */
   struct ssl_primary_config ssl_config; /* setup for this session */
 };
 
@@ -444,14 +447,6 @@ struct ntlmdata {
   unsigned char nonce[8];
   unsigned int target_info_len;
   void *target_info; /* TargetInfo received in the ntlm type-2 message */
-
-#if defined(NTLM_WB_ENABLED)
-  /* used for communication with Samba's winbind daemon helper ntlm_auth */
-  curl_socket_t ntlm_auth_hlpr_socket;
-  pid_t ntlm_auth_hlpr_pid;
-  char *challenge; /* The received base64 encoded ntlm type-2 message */
-  char *response;  /* The generated base64 ntlm type-1/type-3 message */
-#endif
 #endif
 };
 #endif
@@ -706,11 +701,17 @@ struct Curl_handler {
   CURLcode (*disconnect)(struct Curl_easy *, struct connectdata *,
                          bool dead_connection);
 
-  /* If used, this function gets called from transfer.c:readwrite_data() to
+  /* If used, this function gets called from transfer.c to
      allow the protocol to do extra handling in writing response to
      the client. */
   CURLcode (*write_resp)(struct Curl_easy *data, const char *buf, size_t blen,
                          bool is_eos);
+
+  /* If used, this function gets called from transfer.c to
+     allow the protocol to do extra handling in writing a single response
+     header line to the client. */
+  CURLcode (*write_resp_hd)(struct Curl_easy *data,
+                            const char *hd, size_t hdlen, bool is_eos);
 
   /* This function can perform various checks on the connection. See
      CONNCHECK_* for more information about the checks that can be performed,

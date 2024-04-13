@@ -1126,6 +1126,7 @@ check_include_file_concat("sys/un.h"         HAVE_SYS_UN_H)
 check_include_file_concat("sys/utime.h"      HAVE_SYS_UTIME_H)
 check_include_file_concat("sys/xattr.h"      HAVE_SYS_XATTR_H)
 check_include_file_concat("arpa/inet.h"      HAVE_ARPA_INET_H)
+check_include_file_concat("dirent.h"         HAVE_DIRENT_H)
 check_include_file_concat("fcntl.h"          HAVE_FCNTL_H)
 check_include_file_concat("ifaddrs.h"        HAVE_IFADDRS_H)
 check_include_file_concat("io.h"             HAVE_IO_H)
@@ -1188,6 +1189,7 @@ endif()
 
 check_symbol_exists(fnmatch       "${CURL_INCLUDES};fnmatch.h" HAVE_FNMATCH)
 check_symbol_exists(basename      "${CURL_INCLUDES};string.h" HAVE_BASENAME)
+check_symbol_exists(opendir       "${CURL_INCLUDES};dirent.h" HAVE_OPENDIR)
 check_symbol_exists(socket        "${CURL_INCLUDES}" HAVE_SOCKET)
 check_symbol_exists(sched_yield   "${CURL_INCLUDES};sched.h" HAVE_SCHED_YIELD)
 check_symbol_exists(socketpair    "${CURL_INCLUDES}" HAVE_SOCKETPAIR)
@@ -1229,7 +1231,6 @@ check_symbol_exists(getifaddrs     "${CURL_INCLUDES};stdlib.h" HAVE_GETIFADDRS)
 check_symbol_exists(freeaddrinfo   "${CURL_INCLUDES}" HAVE_FREEADDRINFO)
 check_symbol_exists(pipe           "${CURL_INCLUDES}" HAVE_PIPE)
 check_symbol_exists(ftruncate      "${CURL_INCLUDES}" HAVE_FTRUNCATE)
-check_symbol_exists(fseeko         "${CURL_INCLUDES};stdio.h" HAVE_FSEEKO)
 check_symbol_exists(_fseeki64      "${CURL_INCLUDES};stdio.h" HAVE__FSEEKI64)
 check_symbol_exists(getpeername    "${CURL_INCLUDES}" HAVE_GETPEERNAME)
 check_symbol_exists(getsockname    "${CURL_INCLUDES}" HAVE_GETSOCKNAME)
@@ -1238,10 +1239,6 @@ check_symbol_exists(getrlimit      "${CURL_INCLUDES}" HAVE_GETRLIMIT)
 check_symbol_exists(setlocale      "${CURL_INCLUDES}" HAVE_SETLOCALE)
 check_symbol_exists(setmode        "${CURL_INCLUDES}" HAVE_SETMODE)
 check_symbol_exists(setrlimit      "${CURL_INCLUDES}" HAVE_SETRLIMIT)
-
-if(HAVE_FSEEKO)
-  set(HAVE_DECL_FSEEKO 1)
-endif()
 
 if(NOT MSVC OR (MSVC_VERSION GREATER_EQUAL 1900))
   # earlier MSVC compilers had faulty snprintf implementations
@@ -1304,6 +1301,15 @@ if(HAVE_FILE_OFFSET_BITS)
   set(CMAKE_REQUIRED_FLAGS "-D_FILE_OFFSET_BITS=64")
 endif()
 check_type_size("off_t"  SIZEOF_OFF_T)
+
+# fseeko may not exist with _FILE_OFFSET_BITS=64 but can exist with
+# _FILE_OFFSET_BITS unset or 32 (e.g. Android ARMv7 with NDK 26b and API level < 24)
+# so we need to test fseeko after testing for _FILE_OFFSET_BITS
+check_symbol_exists(fseeko         "${CURL_INCLUDES};stdio.h" HAVE_FSEEKO)
+
+if(HAVE_FSEEKO)
+  set(HAVE_DECL_FSEEKO 1)
+endif()
 
 # include this header to get the type
 set(CMAKE_REQUIRED_INCLUDES "${CURL_SOURCE_DIR}/include")
@@ -1559,9 +1565,6 @@ if(NOT CURL_DISABLE_INSTALL)
                           (HAVE_GSSAPI OR USE_WINDOWS_SSPI))
   _add_if("NTLM"          NOT (CURL_DISABLE_NTLM) AND
                           (use_curl_ntlm_core OR USE_WINDOWS_SSPI))
-  _add_if("NTLM_WB"       NOT (CURL_DISABLE_NTLM) AND
-                          (use_curl_ntlm_core OR USE_WINDOWS_SSPI) AND
-                          NOT CURL_DISABLE_HTTP AND NTLM_WB_ENABLED)
   _add_if("TLS-SRP"       USE_TLS_SRP)
   _add_if("HTTP2"         USE_NGHTTP2)
   _add_if("HTTP3"         USE_NGTCP2 OR USE_QUICHE OR USE_OPENSSL_QUIC)

@@ -178,10 +178,12 @@ typedef CURLcode Curl_cft_query(struct Curl_cfilter *cf,
  *                     connection, etc.
  * CF_TYPE_SSL:        provide SSL/TLS
  * CF_TYPE_MULTIPLEX:  provides multiplexing of easy handles
+ * CF_TYPE_PROXY       provides proxying
  */
 #define CF_TYPE_IP_CONNECT  (1 << 0)
 #define CF_TYPE_SSL         (1 << 1)
 #define CF_TYPE_MULTIPLEX   (1 << 2)
+#define CF_TYPE_PROXY       (1 << 3)
 
 /* A connection filter type, e.g. specific implementation. */
 struct Curl_cftype {
@@ -449,7 +451,7 @@ CURLcode Curl_conn_ev_data_idle(struct Curl_easy *data);
 
 /**
  * Notify connection filters that the transfer represented by `data`
- * is donw with sending data (e.g. has uploaded everything).
+ * is done with sending data (e.g. has uploaded everything).
  */
 void Curl_conn_ev_data_done_send(struct Curl_easy *data);
 

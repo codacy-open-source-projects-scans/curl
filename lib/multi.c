@@ -374,8 +374,7 @@ static void sh_init(struct Curl_hash *hash, int hashsize)
  */
 static void multi_addmsg(struct Curl_multi *multi, struct Curl_message *msg)
 {
-  Curl_llist_insert_next(&multi->msglist, multi->msglist.tail, msg,
-                         &msg->list);
+  Curl_llist_append(&multi->msglist, msg, &msg->list);
 }
 
 struct Curl_multi *Curl_multi_handle(int hashsize, /* socket hash */
@@ -1002,8 +1001,7 @@ void Curl_attach_connection(struct Curl_easy *data,
   DEBUGASSERT(!data->conn);
   DEBUGASSERT(conn);
   data->conn = conn;
-  Curl_llist_insert_next(&conn->easyq, conn->easyq.tail, data,
-                         &data->conn_queue);
+  Curl_llist_append(&conn->easyq, data, &data->conn_queue);
   if(conn->handler && conn->handler->attach)
     conn->handler->attach(data, conn);
   Curl_conn_ev_data_attach(conn, data);
@@ -1208,6 +1206,68 @@ CURLMcode curl_multi_fdset(struct Curl_multi *multi,
   return CURLM_OK;
 }
 
+CURLMcode curl_multi_waitfds(struct Curl_multi *multi,
+                             struct curl_waitfd *ufds,
+                             unsigned int size,
+                             unsigned int *fd_count)
+{
+  struct Curl_easy *data;
+  unsigned int nfds = 0;
+  struct easy_pollset ps;
+  unsigned int i;
+  CURLMcode result = CURLM_OK;
+  struct curl_waitfd *ufd;
+  unsigned int j;
+
+  if(!ufds)
+    return CURLM_BAD_FUNCTION_ARGUMENT;
+
+  if(!GOOD_MULTI_HANDLE(multi))
+    return CURLM_BAD_HANDLE;
+
+  if(multi->in_callback)
+    return CURLM_RECURSIVE_API_CALL;
+
+  memset(&ps, 0, sizeof(ps));
+  for(data = multi->easyp; data; data = data->next) {
+    multi_getsock(data, &ps);
+
+    for(i = 0; i < ps.num; i++) {
+      if(nfds < size) {
+        curl_socket_t fd = ps.sockets[i];
+        int fd_idx = -1;
+
+        /* Simple linear search to skip an already added descriptor */
+        for(j = 0; j < nfds; j++) {
+          if(ufds[j].fd == fd) {
+            fd_idx = (int)j;
+            break;
+          }
+        }
+
+        if(fd_idx < 0) {
+          ufd = &ufds[nfds++];
+          ufd->fd = ps.sockets[i];
+          ufd->events = 0;
+        }
+        else
+          ufd = &ufds[fd_idx];
+
+        if(ps.actions[i] & CURL_POLL_IN)
+          ufd->events |= CURL_WAIT_POLLIN;
+        if(ps.actions[i] & CURL_POLL_OUT)
+          ufd->events |= CURL_WAIT_POLLOUT;
+      }
+      else
+        return CURLM_OUT_OF_MEMORY;
+    }
+  }
+
+  if(fd_count)
+    *fd_count = nfds;
+  return result;
+}
+
 #ifdef USE_WINSOCK
 /* Reset FD_WRITE for TCP sockets. Nothing is actually sent. UDP sockets can't
  * be reset this way because an empty datagram would be sent. #9203
@@ -1292,7 +1352,7 @@ static CURLMcode multi_wait(struct Curl_multi *multi,
     /* 'nfds' is a 32 bit value and 'struct pollfd' is typically 8 bytes
        big, so at 2^29 sockets this value might wrap. When a process gets
        the capability to actually handle over 500 million sockets this
-       calculation needs a integer overflow check. */
+       calculation needs an integer overflow check. */
     ufds = malloc(nfds * sizeof(struct pollfd));
     if(!ufds)
       return CURLM_OUT_OF_MEMORY;
@@ -1934,8 +1994,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
         multistate(data, MSTATE_PENDING);
 
         /* add this handle to the list of connect-pending handles */
-        Curl_llist_insert_next(&multi->pending, multi->pending.tail, data,
-                               &data->connect_queue);
+        Curl_llist_append(&multi->pending, data, &data->connect_queue);
         /* unlink from the main list */
         unlink_easy(multi, data);
         result = CURLE_OK;
@@ -2658,8 +2717,7 @@ statemachine_end:
       multistate(data, MSTATE_MSGSENT);
 
       /* add this handle to the list of msgsent handles */
-      Curl_llist_insert_next(&multi->msgsent, multi->msgsent.tail, data,
-                             &data->connect_queue);
+      Curl_llist_append(&multi->msgsent, data, &data->connect_queue);
       /* unlink from the main list */
       unlink_easy(multi, data);
       return CURLM_OK;
