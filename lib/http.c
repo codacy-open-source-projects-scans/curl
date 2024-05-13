@@ -109,7 +109,7 @@ static void http_exp100_send_anyway(struct Curl_easy *data);
  * HTTP handler interface.
  */
 const struct Curl_handler Curl_handler_http = {
-  "HTTP",                               /* scheme */
+  "http",                               /* scheme */
   Curl_http_setup_conn,                 /* setup_connection */
   Curl_http,                            /* do_it */
   Curl_http_done,                       /* done */
@@ -138,7 +138,7 @@ const struct Curl_handler Curl_handler_http = {
  * HTTPS handler interface.
  */
 const struct Curl_handler Curl_handler_https = {
-  "HTTPS",                              /* scheme */
+  "https",                              /* scheme */
   Curl_http_setup_conn,                 /* setup_connection */
   Curl_http,                            /* do_it */
   Curl_http_done,                       /* done */
@@ -3254,10 +3254,6 @@ CURLcode Curl_http_statusline(struct Curl_easy *data,
     /* HTTP/2 cannot avoid multiplexing since it is a core functionality
        of the protocol */
     conn->bundle->multiuse = BUNDLE_MULTIPLEX;
-  }
-  else if(k->httpversion >= 11 && !conn->bits.close) {
-    /* If HTTP version is >= 1.1 and connection is persistent */
-    DEBUGF(infof(data, "HTTP 1.1 or later with persistent connection"));
   }
 
   k->http_bodyless = k->httpcode >= 100 && k->httpcode < 200;
