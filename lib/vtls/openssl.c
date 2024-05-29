@@ -307,14 +307,6 @@ typedef unsigned long sslerr_t;
 #define USE_PRE_1_1_API (OPENSSL_VERSION_NUMBER < 0x10100000L)
 #endif /* !LIBRESSL_VERSION_NUMBER */
 
-#if defined(HAVE_SSL_X509_STORE_SHARE)
-struct multi_ssl_backend_data {
-  char *CAfile;         /* CAfile path used to generate X509 store */
-  X509_STORE *store;    /* cached X509 store or NULL if none */
-  struct curltime time; /* when the cached store was created */
-};
-#endif /* HAVE_SSL_X509_STORE_SHARE */
-
 #define push_certinfo(_label, _num)             \
 do {                              \
   long info_len = BIO_get_mem_data(mem, &ptr); \
@@ -3355,8 +3347,33 @@ static CURLcode populate_x509_store(struct Curl_cfilter *cf,
 }
 
 #if defined(HAVE_SSL_X509_STORE_SHARE)
-static bool cached_x509_store_expired(const struct Curl_easy *data,
-                                      const struct multi_ssl_backend_data *mb)
+
+/* key to use at `multi->proto_hash` */
+#define MPROTO_OSSL_X509_KEY   "tls:ossl:x509:share"
+
+struct ossl_x509_share {
+  char *CAfile;         /* CAfile path used to generate X509 store */
+  X509_STORE *store;    /* cached X509 store or NULL if none */
+  struct curltime time; /* when the cached store was created */
+};
+
+static void oss_x509_share_free(void *key, size_t key_len, void *p)
+{
+  struct ossl_x509_share *share = p;
+  DEBUGASSERT(key_len == (sizeof(MPROTO_OSSL_X509_KEY)-1));
+  DEBUGASSERT(!memcmp(MPROTO_OSSL_X509_KEY, key, key_len));
+  (void)key;
+  (void)key_len;
+  if(share->store) {
+    X509_STORE_free(share->store);
+  }
+  free(share->CAfile);
+  free(share);
+}
+
+static bool
+cached_x509_store_expired(const struct Curl_easy *data,
+                          const struct ossl_x509_share *mb)
 {
   const struct ssl_general_config *cfg = &data->set.general_ssl;
   struct curltime now = Curl_now();
@@ -3369,9 +3386,9 @@ static bool cached_x509_store_expired(const struct Curl_easy *data,
   return elapsed_ms >= timeout_ms;
 }
 
-static bool cached_x509_store_different(
-  struct Curl_cfilter *cf,
-  const struct multi_ssl_backend_data *mb)
+static bool
+cached_x509_store_different(struct Curl_cfilter *cf,
+                            const struct ossl_x509_share *mb)
 {
   struct ssl_primary_config *conn_config = Curl_ssl_cf_get_primary_config(cf);
   if(!mb->CAfile || !conn_config->CAfile)
@@ -3384,15 +3401,17 @@ static X509_STORE *get_cached_x509_store(struct Curl_cfilter *cf,
                                          const struct Curl_easy *data)
 {
   struct Curl_multi *multi = data->multi;
+  struct ossl_x509_share *share;
   X509_STORE *store = NULL;
 
   DEBUGASSERT(multi);
-  if(multi &&
-     multi->ssl_backend_data &&
-     multi->ssl_backend_data->store &&
-     !cached_x509_store_expired(data, multi->ssl_backend_data) &&
-     !cached_x509_store_different(cf, multi->ssl_backend_data)) {
-    store = multi->ssl_backend_data->store;
+  share = multi? Curl_hash_pick(&multi->proto_hash,
+                                (void *)MPROTO_OSSL_X509_KEY,
+                                sizeof(MPROTO_OSSL_X509_KEY)-1) : NULL;
+  if(share && share->store &&
+     !cached_x509_store_expired(data, share) &&
+     !cached_x509_store_different(cf, share)) {
+    store = share->store;
   }
 
   return store;
@@ -3404,19 +3423,27 @@ static void set_cached_x509_store(struct Curl_cfilter *cf,
 {
   struct ssl_primary_config *conn_config = Curl_ssl_cf_get_primary_config(cf);
   struct Curl_multi *multi = data->multi;
-  struct multi_ssl_backend_data *mbackend;
+  struct ossl_x509_share *share;
 
   DEBUGASSERT(multi);
   if(!multi)
     return;
+  share = Curl_hash_pick(&multi->proto_hash,
+                         (void *)MPROTO_OSSL_X509_KEY,
+                         sizeof(MPROTO_OSSL_X509_KEY)-1);
 
-  if(!multi->ssl_backend_data) {
-    multi->ssl_backend_data = calloc(1, sizeof(struct multi_ssl_backend_data));
-    if(!multi->ssl_backend_data)
+  if(!share) {
+    share = calloc(1, sizeof(*share));
+    if(!share)
       return;
+    if(!Curl_hash_add2(&multi->proto_hash,
+                       (void *)MPROTO_OSSL_X509_KEY,
+                       sizeof(MPROTO_OSSL_X509_KEY)-1,
+                       share, oss_x509_share_free)) {
+      free(share);
+      return;
+    }
   }
-
-  mbackend = multi->ssl_backend_data;
 
   if(X509_STORE_up_ref(store)) {
     char *CAfile = NULL;
@@ -3429,14 +3456,14 @@ static void set_cached_x509_store(struct Curl_cfilter *cf,
       }
     }
 
-    if(mbackend->store) {
-      X509_STORE_free(mbackend->store);
-      free(mbackend->CAfile);
+    if(share->store) {
+      X509_STORE_free(share->store);
+      free(share->CAfile);
     }
 
-    mbackend->time = Curl_now();
-    mbackend->store = store;
-    mbackend->CAfile = CAfile;
+    share->time = Curl_now();
+    share->store = store;
+    share->CAfile = CAfile;
   }
 }
 
@@ -3504,7 +3531,7 @@ CURLcode Curl_ossl_ctx_init(struct ossl_ctx *octx,
   void *ssl_sessionid = NULL;
   struct ssl_primary_config *conn_config = Curl_ssl_cf_get_primary_config(cf);
   struct ssl_config_data *ssl_config = Curl_ssl_cf_get_config(cf, data);
-  const long int ssl_version = conn_config->version;
+  const long int ssl_version_min = conn_config->version;
   char * const ssl_cert = ssl_config->primary.clientcert;
   const struct curl_blob *ssl_cert_blob = ssl_config->primary.cert_blob;
   const char * const ssl_cert_type = ssl_config->cert_type;
@@ -3524,7 +3551,7 @@ CURLcode Curl_ossl_ctx_init(struct ossl_ctx *octx,
   switch(transport) {
   case TRNSPRT_TCP:
     /* check to see if we've been told to use an explicit SSL/TLS version */
-    switch(ssl_version) {
+    switch(ssl_version_min) {
     case CURL_SSLVERSION_DEFAULT:
     case CURL_SSLVERSION_TLSv1:
     case CURL_SSLVERSION_TLSv1_0:
@@ -3550,11 +3577,12 @@ CURLcode Curl_ossl_ctx_init(struct ossl_ctx *octx,
     }
     break;
   case TRNSPRT_QUIC:
-    if((ssl_version != CURL_SSLVERSION_DEFAULT) &&
-       (ssl_version < CURL_SSLVERSION_TLSv1_3)) {
+    if(conn_config->version_max &&
+       (conn_config->version_max != CURL_SSLVERSION_MAX_TLSv1_3)) {
       failf(data, "QUIC needs at least TLS version 1.3");
       return CURLE_SSL_CONNECT_ERROR;
-     }
+    }
+
 #ifdef USE_OPENSSL_QUIC
     req_method = OSSL_QUIC_client_method();
 #elif (OPENSSL_VERSION_NUMBER >= 0x10100000L)
@@ -3650,7 +3678,7 @@ CURLcode Curl_ossl_ctx_init(struct ossl_ctx *octx,
     ctx_options &= ~SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS;
 #endif
 
-  switch(ssl_version) {
+  switch(ssl_version_min) {
   case CURL_SSLVERSION_SSLv2:
   case CURL_SSLVERSION_SSLv3:
     return CURLE_NOT_BUILT_IN;
@@ -3940,7 +3968,7 @@ CURLcode Curl_ossl_ctx_init(struct ossl_ctx *octx,
 # endif
           else {
             trying_ech_now = 1;
-            infof(data, "ECH: imported ECHConfigList of length %ld", elen);
+            infof(data, "ECH: imported ECHConfigList of length %zu", elen);
           }
         }
         else {
@@ -4150,14 +4178,11 @@ static CURLcode ossl_connect_step2(struct Curl_cfilter *cf,
   }
 
 #ifndef HAVE_KEYLOG_CALLBACK
-  if(Curl_tls_keylog_enabled()) {
-    /* If key logging is enabled, wait for the handshake to complete and then
-     * proceed with logging secrets (for TLS 1.2 or older).
-     */
-    bool done = FALSE;
-    ossl_log_tls12_secret(octx->ssl, &done);
-    octx->keylog_done = done;
-  }
+  /* If key logging is enabled, wait for the handshake to complete and then
+   * proceed with logging secrets (for TLS 1.2 or older).
+   */
+  if(Curl_tls_keylog_enabled() && !octx->keylog_done)
+    ossl_log_tls12_secret(octx->ssl, &octx->keylog_done);
 #endif
 
   /* 1  is fine
@@ -5236,20 +5261,6 @@ static void *ossl_get_internals(struct ssl_connect_data *connssl,
     (void *)octx->ssl_ctx : (void *)octx->ssl;
 }
 
-static void ossl_free_multi_ssl_backend_data(
-  struct multi_ssl_backend_data *mbackend)
-{
-#if defined(HAVE_SSL_X509_STORE_SHARE)
-  if(mbackend->store) {
-    X509_STORE_free(mbackend->store);
-  }
-  free(mbackend->CAfile);
-  free(mbackend);
-#else /* HAVE_SSL_X509_STORE_SHARE */
-  (void)mbackend;
-#endif /* HAVE_SSL_X509_STORE_SHARE */
-}
-
 const struct Curl_ssl Curl_ssl_openssl = {
   { CURLSSLBACKEND_OPENSSL, "openssl" }, /* info */
 
@@ -5293,7 +5304,6 @@ const struct Curl_ssl Curl_ssl_openssl = {
 #endif
   NULL,                     /* use of data in this connection */
   NULL,                     /* remote of data from this connection */
-  ossl_free_multi_ssl_backend_data, /* free_multi_ssl_backend_data */
   ossl_recv,                /* recv decrypted data */
   ossl_send,                /* send data to encrypt */
 };

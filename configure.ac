@@ -44,6 +44,7 @@ AM_MAINTAINER_MODE
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 
 CURL_CHECK_OPTION_DEBUG
+AM_CONDITIONAL(DEBUGBUILD, test x$want_debug = xyes)
 CURL_CHECK_OPTION_OPTIMIZE
 CURL_CHECK_OPTION_WARNINGS
 CURL_CHECK_OPTION_WERROR
@@ -549,7 +550,6 @@ CURL_CHECK_COMPILER_PROTOTYPE_MISMATCH
 CURL_CHECK_COMPILER_SYMBOL_HIDING
 
 CURL_CHECK_CURLDEBUG
-AM_CONDITIONAL(CURLDEBUG, test x$want_curldebug = xyes)
 
 supports_unittests=yes
 # cross-compilation of unit tests static library/programs fails when
@@ -5037,7 +5037,7 @@ AC_MSG_NOTICE([Configured to build curl/libcurl:
   Features:         ${SUPPORT_FEATURES}
 ])
 
-non13=`echo "$TLSCHOICE" | grep -Ei 'bearssl|secure-transport|mbedtls'`;
+non13=`echo "$TLSCHOICE" | $EGREP -i 'bearssl|secure-transport|mbedtls'`;
 if test -n "$non13"; then
  cat >&2 << _EOF
   WARNING: A selected TLS library ($TLSCHOICE) does not support TLS 1.3!
