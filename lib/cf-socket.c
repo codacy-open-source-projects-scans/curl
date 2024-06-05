@@ -53,6 +53,11 @@
 #include <inet.h>
 #endif
 
+#ifdef __DragonFly__
+/* Required for __DragonFly_version */
+#include <sys/param.h>
+#endif
+
 #include "urldata.h"
 #include "bufq.h"
 #include "sendf.h"
@@ -73,6 +78,7 @@
 #include "multihandle.h"
 #include "rand.h"
 #include "share.h"
+#include "strdup.h"
 #include "version_win32.h"
 
 /* The last 3 #include files should be in this order */
@@ -137,8 +143,11 @@ static void nosigpipe(struct Curl_easy *data,
 #define nosigpipe(x,y) Curl_nop_stmt
 #endif
 
-#if defined(__DragonFly__) || defined(USE_WINSOCK)
-/* DragonFlyBSD and Windows use millisecond units */
+#if defined(USE_WINSOCK) || \
+   (defined(__sun) && !defined(TCP_KEEPIDLE)) || \
+   (defined(__DragonFly__) && __DragonFly_version < 500702)
+/* Solaris < 11.4, DragonFlyBSD < 500702 and Windows
+ * use millisecond units. */
 #define KEEPALIVE_FACTOR(x) (x *= 1000)
 #else
 #define KEEPALIVE_FACTOR(x)
@@ -204,6 +213,16 @@ tcpkeepalive(struct Curl_easy *data,
             "%" CURL_FORMAT_SOCKET_T ": errno %d",
             sockfd, SOCKERRNO);
     }
+#elif defined(TCP_KEEPALIVE_THRESHOLD)
+    /* Solaris <11.4 style */
+    optval = curlx_sltosi(data->set.tcp_keepidle);
+    KEEPALIVE_FACTOR(optval);
+    if(setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPALIVE_THRESHOLD,
+      (void *)&optval, sizeof(optval)) < 0) {
+      infof(data, "Failed to set TCP_KEEPALIVE_THRESHOLD on fd "
+            "%" CURL_FORMAT_SOCKET_T ": errno %d",
+            sockfd, SOCKERRNO);
+    }
 #endif
 #ifdef TCP_KEEPINTVL
     optval = curlx_sltosi(data->set.tcp_keepintvl);
@@ -211,6 +230,26 @@ tcpkeepalive(struct Curl_easy *data,
     if(setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPINTVL,
           (void *)&optval, sizeof(optval)) < 0) {
       infof(data, "Failed to set TCP_KEEPINTVL on fd "
+            "%" CURL_FORMAT_SOCKET_T ": errno %d",
+            sockfd, SOCKERRNO);
+    }
+#elif defined(TCP_KEEPALIVE_ABORT_THRESHOLD)
+    /* Solaris <11.4 style */
+    /* TCP_KEEPALIVE_ABORT_THRESHOLD should equal to
+     * TCP_KEEPCNT * TCP_KEEPINTVL on other platforms.
+     * The default value of TCP_KEEPCNT is 9 on Linux,
+     * 8 on *BSD/macOS, 5 or 10 on Windows. We choose
+     * 9 for Solaris <11.4 because there is no default
+     * value for TCP_KEEPCNT on Solaris 11.4.
+     *
+     * Note that the consequent probes will not be sent
+     * at equal intervals on Solaris, but will be sent
+     * using the exponential backoff algorithm. */
+    optval = 9 * curlx_sltosi(data->set.tcp_keepintvl);
+    KEEPALIVE_FACTOR(optval);
+    if(setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPALIVE_ABORT_THRESHOLD,
+          (void *)&optval, sizeof(optval)) < 0) {
+      infof(data, "Failed to set TCP_KEEPALIVE_ABORT_THRESHOLD on fd "
             "%" CURL_FORMAT_SOCKET_T ": errno %d",
             sockfd, SOCKERRNO);
     }
@@ -370,7 +409,7 @@ int Curl_socket_close(struct Curl_easy *data, struct connectdata *conn,
 #define DETECT_OS_PREVISTA 1
 #define DETECT_OS_VISTA_OR_LATER 2
 
-void Curl_sndbufset(curl_socket_t sockfd)
+void Curl_sndbuf_init(curl_socket_t sockfd)
 {
   int val = CURL_MAX_WRITE_SIZE + 32;
   int curval = 0;
@@ -395,7 +434,83 @@ void Curl_sndbufset(curl_socket_t sockfd)
 
   setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, (const char *)&val, sizeof(val));
 }
-#endif
+#endif /* USE_WINSOCK */
+
+/*
+ * Curl_parse_interface()
+ *
+ * This is used to parse interface argument in the following formats.
+ * In all the examples, `host` can be an IP address or a hostname.
+ *
+ *   <iface_or_host> - can be either an interface name or a host.
+ *   if!<iface> - interface name.
+ *   host!<host> - host name.
+ *   ifhost!<iface>!<host> - interface name and host name.
+ *
+ * Parameters:
+ *
+ * input  [in]     - input string.
+ * len    [in]     - length of the input string.
+ * dev    [in/out] - address where a pointer to newly allocated memory
+ *                   holding the interface-or-host will be stored upon
+ *                   completion.
+ * iface  [in/out] - address where a pointer to newly allocated memory
+ *                   holding the interface will be stored upon completion.
+ * host   [in/out] - address where a pointer to newly allocated memory
+ *                   holding the host will be stored upon completion.
+ *
+ * Returns CURLE_OK on success.
+ */
+CURLcode Curl_parse_interface(const char *input, size_t len,
+                              char **dev, char **iface, char **host)
+{
+  static const char if_prefix[] = "if!";
+  static const char host_prefix[] = "host!";
+  static const char if_host_prefix[] = "ifhost!";
+
+  DEBUGASSERT(dev);
+  DEBUGASSERT(iface);
+  DEBUGASSERT(host);
+
+  if(strncmp(if_prefix, input, strlen(if_prefix)) == 0) {
+    input += strlen(if_prefix);
+    if(!*input)
+      return CURLE_BAD_FUNCTION_ARGUMENT;
+    *iface = Curl_memdup0(input, len - strlen(if_prefix));
+    return *iface ? CURLE_OK : CURLE_OUT_OF_MEMORY;
+  }
+  if(strncmp(host_prefix, input, strlen(host_prefix)) == 0) {
+    input += strlen(host_prefix);
+    if(!*input)
+      return CURLE_BAD_FUNCTION_ARGUMENT;
+    *host = Curl_memdup0(input, len - strlen(host_prefix));
+    return *host ? CURLE_OK : CURLE_OUT_OF_MEMORY;
+  }
+  if(strncmp(if_host_prefix, input, strlen(if_host_prefix)) == 0) {
+    const char *host_part;
+    input += strlen(if_host_prefix);
+    len -= strlen(if_host_prefix);
+    host_part = memchr(input, '!', len);
+    if(!host_part || !*(host_part + 1))
+      return CURLE_BAD_FUNCTION_ARGUMENT;
+    *iface = Curl_memdup0(input, host_part - input);
+    if(!*iface)
+      return CURLE_OUT_OF_MEMORY;
+    ++host_part;
+    *host = Curl_memdup0(host_part, len - (host_part - input));
+    if(!*host) {
+      free(*iface);
+      *iface = NULL;
+      return CURLE_OUT_OF_MEMORY;
+    }
+    return CURLE_OK;
+  }
+
+  if(!*input)
+    return CURLE_BAD_FUNCTION_ARGUMENT;
+  *dev = Curl_memdup0(input, len);
+  return *dev ? CURLE_OK : CURLE_OUT_OF_MEMORY;
+}
 
 #ifndef CURL_DISABLE_BINDLOCAL
 static CURLcode bindlocal(struct Curl_easy *data, struct connectdata *conn,
@@ -415,6 +530,10 @@ static CURLcode bindlocal(struct Curl_easy *data, struct connectdata *conn,
   /* how many port numbers to try to bind to, increasing one at a time */
   int portnum = data->set.localportrange;
   const char *dev = data->set.str[STRING_DEVICE];
+  const char *iface_input = data->set.str[STRING_INTERFACE];
+  const char *host_input = data->set.str[STRING_BINDHOST];
+  const char *iface = iface_input ? iface_input : dev;
+  const char *host = host_input ? host_input : dev;
   int error;
 #ifdef IP_BIND_ADDRESS_NO_PORT
   int on = 1;
@@ -426,81 +545,72 @@ static CURLcode bindlocal(struct Curl_easy *data, struct connectdata *conn,
   /*************************************************************
    * Select device to bind socket to
    *************************************************************/
-  if(!dev && !port)
+  if(!iface && !host && !port)
     /* no local kind of binding was requested */
     return CURLE_OK;
 
   memset(&sa, 0, sizeof(struct Curl_sockaddr_storage));
 
-  if(dev && (strlen(dev)<255) ) {
+  if(iface && (strlen(iface)<255) ) {
     char myhost[256] = "";
     int done = 0; /* -1 for error, 1 for address found */
-    bool is_interface = FALSE;
-    bool is_host = FALSE;
-    static const char *if_prefix = "if!";
-    static const char *host_prefix = "host!";
-
-    if(strncmp(if_prefix, dev, strlen(if_prefix)) == 0) {
-      dev += strlen(if_prefix);
-      is_interface = TRUE;
-    }
-    else if(strncmp(host_prefix, dev, strlen(host_prefix)) == 0) {
-      dev += strlen(host_prefix);
-      is_host = TRUE;
-    }
+    if2ip_result_t if2ip_result = IF2IP_NOT_FOUND;
 
     /* interface */
-    if(!is_host) {
 #ifdef SO_BINDTODEVICE
-      /*
-       * This binds the local socket to a particular interface. This will
-       * force even requests to other local interfaces to go out the external
-       * interface. Only bind to the interface when specified as interface,
-       * not just as a hostname or ip address.
-       *
-       * The interface might be a VRF, eg: vrf-blue, which means it cannot be
-       * converted to an IP address and would fail Curl_if2ip. Simply try to
-       * use it straight away.
-       */
-      if(setsockopt(sockfd, SOL_SOCKET, SO_BINDTODEVICE,
-                    dev, (curl_socklen_t)strlen(dev) + 1) == 0) {
-        /* This is often "errno 1, error: Operation not permitted" if you're
-         * not running as root or another suitable privileged user. If it
-         * succeeds it means the parameter was a valid interface and not an IP
-         * address. Return immediately.
-         */
-        infof(data, "socket successfully bound to interface '%s'", dev);
+    /*
+      * This binds the local socket to a particular interface. This will
+      * force even requests to other local interfaces to go out the external
+      * interface. Only bind to the interface when specified as interface,
+      * not just as a hostname or ip address.
+      *
+      * The interface might be a VRF, eg: vrf-blue, which means it cannot be
+      * converted to an IP address and would fail Curl_if2ip. Simply try to
+      * use it straight away.
+      */
+    if(setsockopt(sockfd, SOL_SOCKET, SO_BINDTODEVICE,
+                  iface, (curl_socklen_t)strlen(iface) + 1) == 0) {
+      /* This is often "errno 1, error: Operation not permitted" if you're
+        * not running as root or another suitable privileged user. If it
+        * succeeds it means the parameter was a valid interface and not an IP
+        * address. Return immediately.
+        */
+      if(!host_input) {
+        infof(data, "socket successfully bound to interface '%s'", iface);
         return CURLE_OK;
       }
-#endif
-
-      switch(Curl_if2ip(af,
-#ifdef USE_IPV6
-                        scope, conn->scope_id,
-#endif
-                        dev, myhost, sizeof(myhost))) {
-        case IF2IP_NOT_FOUND:
-          if(is_interface) {
-            /* Do not fall back to treating it as a host name */
-            failf(data, "Couldn't bind to interface '%s'", dev);
-            return CURLE_INTERFACE_FAILED;
-          }
-          break;
-        case IF2IP_AF_NOT_SUPPORTED:
-          /* Signal the caller to try another address family if available */
-          return CURLE_UNSUPPORTED_PROTOCOL;
-        case IF2IP_FOUND:
-          is_interface = TRUE;
-          /*
-           * We now have the numerical IP address in the 'myhost' buffer
-           */
-          infof(data, "Local Interface %s is ip %s using address family %i",
-                dev, myhost, af);
-          done = 1;
-          break;
-      }
     }
-    if(!is_interface) {
+#endif
+    if(!host_input) {
+      /* Discover IP from input device, then bind to it */
+      if2ip_result = Curl_if2ip(af,
+#ifdef USE_IPV6
+                      scope, conn->scope_id,
+#endif
+                      iface, myhost, sizeof(myhost));
+    }
+    switch(if2ip_result) {
+      case IF2IP_NOT_FOUND:
+        if(iface_input && !host_input) {
+          /* Do not fall back to treating it as a host name */
+          failf(data, "Couldn't bind to interface '%s'", iface);
+          return CURLE_INTERFACE_FAILED;
+        }
+        break;
+      case IF2IP_AF_NOT_SUPPORTED:
+        /* Signal the caller to try another address family if available */
+        return CURLE_UNSUPPORTED_PROTOCOL;
+      case IF2IP_FOUND:
+        /*
+          * We now have the numerical IP address in the 'myhost' buffer
+          */
+        host = myhost;
+        infof(data, "Local Interface %s is ip %s using address family %i",
+              iface, host, af);
+        done = 1;
+        break;
+    }
+    if(!iface_input || host_input) {
       /*
        * This was not an interface, resolve the name as a host name
        * or IP number
@@ -519,7 +629,7 @@ static CURLcode bindlocal(struct Curl_easy *data, struct connectdata *conn,
         conn->ip_version = CURL_IPRESOLVE_V6;
 #endif
 
-      rc = Curl_resolv(data, dev, 80, FALSE, &h);
+      rc = Curl_resolv(data, host, 80, FALSE, &h);
       if(rc == CURLRESOLV_PENDING)
         (void)Curl_resolver_wait_resolv(data, &h);
       conn->ip_version = ipver;
@@ -528,7 +638,7 @@ static CURLcode bindlocal(struct Curl_easy *data, struct connectdata *conn,
         /* convert the resolved address, sizeof myhost >= INET_ADDRSTRLEN */
         Curl_printable_address(h->addr, myhost, sizeof(myhost));
         infof(data, "Name '%s' family %i resolved to '%s' family %i",
-              dev, af, myhost, h->addr->ai_family);
+              host, af, myhost, h->addr->ai_family);
         Curl_resolv_unlock(data, h);
         if(af != h->addr->ai_family) {
           /* bad IP version combo, signal the caller to try another address
@@ -590,7 +700,7 @@ static CURLcode bindlocal(struct Curl_easy *data, struct connectdata *conn,
          the error buffer, so the user receives this error message instead of a
          generic resolve error. */
       data->state.errorbuf = FALSE;
-      failf(data, "Couldn't bind to '%s'", dev);
+      failf(data, "Couldn't bind to '%s'", host);
       return CURLE_INTERFACE_FAILED;
     }
   }
@@ -770,6 +880,10 @@ struct cf_socket_ctx {
   struct curltime started_at;        /* when socket was created */
   struct curltime connected_at;      /* when socket connected/got first byte */
   struct curltime first_byte_at;     /* when first byte was recvd */
+#ifdef USE_WINSOCK
+  struct curltime last_sndbuf_query_at;  /* when SO_SNDBUF last queried */
+  ULONG sndbuf_size;                     /* the last set SO_SNDBUF size */
+#endif
   int error;                         /* errno of last failure or 0 */
 #ifdef DEBUGBUILD
   int wblock_percent;                /* percent of writes doing EAGAIN */
@@ -974,7 +1088,20 @@ static CURLcode cf_socket_open(struct Curl_cfilter *cf,
   (void)data;
   DEBUGASSERT(ctx->sock == CURL_SOCKET_BAD);
   ctx->started_at = Curl_now();
+#ifdef SOCK_NONBLOCK
+  /* Don't tuck SOCK_NONBLOCK into socktype when opensocket callback is set
+   * because we wouldn't know how socketype is about to be used in the
+   * callback, SOCK_NONBLOCK might get factored out before calling socket().
+   */
+  if(!data->set.fopensocket)
+    ctx->addr.socktype |= SOCK_NONBLOCK;
+#endif
   result = socket_open(data, &ctx->addr, &ctx->sock);
+#ifdef SOCK_NONBLOCK
+  /* Restore the socktype after the socket is created. */
+  if(!data->set.fopensocket)
+    ctx->addr.socktype &= ~SOCK_NONBLOCK;
+#endif
   if(result)
     goto out;
 
@@ -1004,7 +1131,7 @@ static CURLcode cf_socket_open(struct Curl_cfilter *cf,
 
   nosigpipe(data, ctx->sock);
 
-  Curl_sndbufset(ctx->sock);
+  Curl_sndbuf_init(ctx->sock);
 
   if(is_tcp && data->set.tcp_keepalive)
     tcpkeepalive(data, ctx->sock);
@@ -1045,8 +1172,14 @@ static CURLcode cf_socket_open(struct Curl_cfilter *cf,
   }
 #endif
 
+#ifndef SOCK_NONBLOCK
   /* set socket non-blocking */
   (void)curlx_nonblock(ctx->sock, TRUE);
+#else
+  if(data->set.fopensocket)
+    /* set socket non-blocking */
+    (void)curlx_nonblock(ctx->sock, TRUE);
+#endif
   ctx->sock_connected = (ctx->addr.socktype != SOCK_DGRAM);
 out:
   if(result) {
@@ -1264,6 +1397,32 @@ static bool cf_socket_data_pending(struct Curl_cfilter *cf,
   return (readable > 0 && (readable & CURL_CSELECT_IN));
 }
 
+#ifdef USE_WINSOCK
+
+#ifndef SIO_IDEAL_SEND_BACKLOG_QUERY
+#define SIO_IDEAL_SEND_BACKLOG_QUERY 0x4004747B
+#endif
+
+static void win_update_sndbuf_size(struct cf_socket_ctx *ctx)
+{
+  ULONG ideal;
+  DWORD ideallen;
+  struct curltime n = Curl_now();
+
+  if(Curl_timediff(n, ctx->last_sndbuf_query_at) > 1000) {
+    if(!WSAIoctl(ctx->sock, SIO_IDEAL_SEND_BACKLOG_QUERY, 0, 0,
+                  &ideal, sizeof(ideal), &ideallen, 0, 0) &&
+       ideal != ctx->sndbuf_size &&
+       !setsockopt(ctx->sock, SOL_SOCKET, SO_SNDBUF,
+                   (const char *)&ideal, sizeof(ideal))) {
+      ctx->sndbuf_size = ideal;
+    }
+    ctx->last_sndbuf_query_at = n;
+  }
+}
+
+#endif /* USE_WINSOCK */
+
 static ssize_t cf_socket_send(struct Curl_cfilter *cf, struct Curl_easy *data,
                               const void *buf, size_t len, CURLcode *err)
 {
@@ -1335,6 +1494,11 @@ static ssize_t cf_socket_send(struct Curl_cfilter *cf, struct Curl_easy *data,
       *err = CURLE_SEND_ERROR;
     }
   }
+
+#if defined(USE_WINSOCK)
+  if(!*err)
+    win_update_sndbuf_size(ctx);
+#endif
 
   CURL_TRC_CF(data, cf, "send(len=%zu) -> %d, err=%d",
               orig_len, (int)nwritten, *err);
@@ -1608,7 +1772,7 @@ out:
 }
 
 static CURLcode cf_udp_setup_quic(struct Curl_cfilter *cf,
-                               struct Curl_easy *data)
+                                  struct Curl_easy *data)
 {
   struct cf_socket_ctx *ctx = cf->ctx;
   int rc;
@@ -1634,7 +1798,11 @@ static CURLcode cf_udp_setup_quic(struct Curl_cfilter *cf,
               ctx->sock, ctx->ip.local_ip, ctx->ip.local_port,
               ctx->ip.remote_ip, ctx->ip.remote_port);
 
-  (void)curlx_nonblock(ctx->sock, TRUE);
+  /* Currently, cf->ctx->sock is always non-blocking because the only
+   * caller to cf_udp_setup_quic() is cf_udp_connect() that passes the
+   * non-blocking socket created by cf_socket_open() to it. Thus, we
+   * don't need to call curlx_nonblock() in cf_udp_setup_quic() anymore.
+   */
   switch(ctx->addr.family) {
 #if defined(__linux__) && defined(IP_MTU_DISCOVER)
   case AF_INET: {

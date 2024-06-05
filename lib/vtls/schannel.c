@@ -171,7 +171,7 @@ schannel_set_ssl_version_min_max(DWORD *enabled_protocols,
 {
   struct ssl_primary_config *conn_config = Curl_ssl_cf_get_primary_config(cf);
   long ssl_version = conn_config->version;
-  long ssl_version_max = conn_config->version_max;
+  long ssl_version_max = (long)conn_config->version_max;
   long i = ssl_version;
 
   switch(ssl_version_max) {
@@ -364,7 +364,7 @@ set_ssl_ciphers(SCHANNEL_CRED *schannel_cred, char *ciphers,
     if(!alg)
       alg = get_alg_id_by_name(startCur);
     if(alg)
-      algIds[algCount++] = alg;
+      algIds[algCount++] = (ALG_ID)alg;
     else if(!strncmp(startCur, "USE_STRONG_CRYPTO",
                      sizeof("USE_STRONG_CRYPTO") - 1) ||
             !strncmp(startCur, "SCH_USE_STRONG_CRYPTO",
@@ -377,7 +377,7 @@ set_ssl_ciphers(SCHANNEL_CRED *schannel_cred, char *ciphers,
       startCur++;
   }
   schannel_cred->palgSupportedAlgs = algIds;
-  schannel_cred->cSupportedAlgs = algCount;
+  schannel_cred->cSupportedAlgs = (DWORD)algCount;
   return CURLE_OK;
 }
 
@@ -513,7 +513,7 @@ schannel_acquire_credential_handle(struct Curl_cfilter *cf,
   }
 
   if(!ssl_config->auto_client_cert) {
-    flags &= ~SCH_CRED_USE_DEFAULT_CREDS;
+    flags &= ~(DWORD)SCH_CRED_USE_DEFAULT_CREDS;
     flags |= SCH_CRED_NO_DEFAULT_CREDS;
     infof(data, "schannel: disabled automatic use of client certificate");
   }
@@ -950,7 +950,7 @@ schannel_acquire_credential_handle(struct Curl_cfilter *cf,
     tls_parameters.pDisabledCrypto = crypto_settings;
 
     /* The number of blocked suites */
-    tls_parameters.cDisabledCrypto = crypto_settings_idx;
+    tls_parameters.cDisabledCrypto = (DWORD)crypto_settings_idx;
     credentials.pTlsParameters = &tls_parameters;
     credentials.cTlsParameters = 1;
 
@@ -2595,9 +2595,7 @@ static void schannel_cleanup(void)
 
 static size_t schannel_version(char *buffer, size_t size)
 {
-  size = msnprintf(buffer, size, "Schannel");
-
-  return size;
+  return msnprintf(buffer, size, "Schannel");
 }
 
 static CURLcode schannel_random(struct Curl_easy *data UNUSED_PARAM,
@@ -2684,6 +2682,13 @@ static void schannel_checksum(const unsigned char *input,
                               DWORD provType,
                               const unsigned int algId)
 {
+#ifdef CURL_WINDOWS_APP
+  (void)input;
+  (void)inputlen;
+  (void)provType;
+  (void)algId;
+  memset(checksum, 0, checksumlen);
+#else
   HCRYPTPROV hProv = 0;
   HCRYPTHASH hHash = 0;
   DWORD cbHashSize = 0;
@@ -2724,6 +2729,7 @@ static void schannel_checksum(const unsigned char *input,
 
   if(hProv)
     CryptReleaseContext(hProv, 0);
+#endif
 }
 
 static CURLcode schannel_sha256sum(const unsigned char *input,
@@ -2908,8 +2914,11 @@ const struct Curl_ssl Curl_ssl_schannel = {
 #ifdef HAS_MANUAL_VERIFY_API
   SSLSUPP_CAINFO_BLOB |
 #endif
+#ifndef CURL_WINDOWS_APP
   SSLSUPP_PINNEDPUBKEY |
+#endif
   SSLSUPP_TLS13_CIPHERSUITES |
+  SSLSUPP_CA_CACHE |
   SSLSUPP_HTTPS_PROXY,
 
   sizeof(struct schannel_ssl_backend_data),

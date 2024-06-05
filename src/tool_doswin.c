@@ -606,8 +606,8 @@ char **__crt0_glob_function(char *arg)
  * The order of the directories it searches is:
  *  1. application's directory
  *  2. current working directory
- *  3. Windows System directory (e.g. C:\windows\system32)
- *  4. Windows Directory (e.g. C:\windows)
+ *  3. Windows System directory (e.g. C:\Windows\System32)
+ *  4. Windows Directory (e.g. C:\Windows)
  *  5. all directories along %PATH%
  *
  * For WinXP and later search order actually depends on registry value:
@@ -620,6 +620,11 @@ CURLcode FindWin32CACert(struct OperationConfig *config,
 {
   CURLcode result = CURLE_OK;
 
+#ifdef CURL_WINDOWS_APP
+  (void)config;
+  (void)backend;
+  (void)bundle_file;
+#else
   /* Search and set cert file only if libcurl supports SSL.
    *
    * If Schannel is the selected SSL backend then these locations are
@@ -645,6 +650,7 @@ CURLcode FindWin32CACert(struct OperationConfig *config,
         result = CURLE_OUT_OF_MEMORY;
     }
   }
+#endif
 
   return result;
 }
@@ -703,6 +709,9 @@ cleanup:
   return slist;
 }
 
+bool tool_term_has_bold;
+
+#ifndef CURL_WINDOWS_APP
 /* The terminal settings to restore on exit */
 static struct TerminalSettings {
   HANDLE hStdOut;
@@ -713,8 +722,6 @@ static struct TerminalSettings {
 #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
 #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
 #endif
-
-bool tool_term_has_bold;
 
 static void restore_terminal(void)
 {
@@ -770,6 +777,7 @@ static void init_terminal(void)
     }
   }
 }
+#endif
 
 LARGE_INTEGER tool_freq;
 bool tool_isVistaOrGreater;
@@ -786,7 +794,9 @@ CURLcode win32_init(void)
 
   QueryPerformanceFrequency(&tool_freq);
 
+#ifndef CURL_WINDOWS_APP
   init_terminal();
+#endif
 
   return CURLE_OK;
 }

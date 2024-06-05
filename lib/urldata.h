@@ -908,11 +908,6 @@ struct connectdata {
   CtxtHandle *sslContext;
 #endif
 
-#if defined(_WIN32) && defined(USE_WINSOCK)
-  struct curltime last_sndbuf_update;  /* last time readwrite_upload called
-                                          win_update_buffer_size */
-#endif
-
 #ifdef USE_GSASL
   struct gsasldata gsasl;
 #endif
@@ -1463,6 +1458,8 @@ enum dupstring {
   STRING_CUSTOMREQUEST,   /* HTTP/FTP/RTSP request/method to use */
   STRING_DEFAULT_PROTOCOL, /* Protocol to use when the URL doesn't specify */
   STRING_DEVICE,          /* local network interface/address to use */
+  STRING_INTERFACE,       /* local network interface to use */
+  STRING_BINDHOST,        /* local address to use */
   STRING_ENCODING,        /* Accept-Encoding string */
 #ifndef CURL_DISABLE_FTP
   STRING_FTP_ACCOUNT,     /* ftp account data */
