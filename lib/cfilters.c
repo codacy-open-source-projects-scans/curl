@@ -55,6 +55,15 @@ void Curl_cf_def_close(struct Curl_cfilter *cf, struct Curl_easy *data)
 }
 #endif
 
+CURLcode Curl_cf_def_shutdown(struct Curl_cfilter *cf,
+                              struct Curl_easy *data, bool *done)
+{
+  (void)cf;
+  (void)data;
+  *done = TRUE;
+  return CURLE_OK;
+}
+
 static void conn_report_connect_stats(struct Curl_easy *data,
                                       struct connectdata *conn);
 
@@ -166,6 +175,55 @@ void Curl_conn_close(struct Curl_easy *data, int index)
   if(cf) {
     cf->cft->do_close(cf, data);
   }
+  Curl_shutdown_clear(data, index);
+}
+
+CURLcode Curl_conn_shutdown(struct Curl_easy *data, int sockindex, bool *done)
+{
+  struct Curl_cfilter *cf;
+  CURLcode result = CURLE_OK;
+  timediff_t timeout_ms;
+  struct curltime now;
+
+  DEBUGASSERT(data->conn);
+  /* it is valid to call that without filters being present */
+  cf = data->conn->cfilter[sockindex];
+  if(!cf) {
+    *done = TRUE;
+    return CURLE_OK;
+  }
+
+  *done = FALSE;
+  now = Curl_now();
+  if(!Curl_shutdown_started(data, sockindex)) {
+    DEBUGF(infof(data, "shutdown start on%s connection",
+           sockindex? " secondary" : ""));
+    Curl_shutdown_start(data, sockindex, &now);
+  }
+  else {
+    timeout_ms = Curl_shutdown_timeleft(data->conn, sockindex, &now);
+    if(timeout_ms < 0) {
+      failf(data, "SSL shutdown timeout");
+      return CURLE_OPERATION_TIMEDOUT;
+    }
+  }
+
+  while(cf) {
+    bool cfdone = FALSE;
+    result = cf->cft->do_shutdown(cf, data, &cfdone);
+    if(result) {
+      CURL_TRC_CF(data, cf, "shut down failed with %d", result);
+      return result;
+    }
+    else if(!cfdone) {
+      CURL_TRC_CF(data, cf, "shut down not done yet");
+      return CURLE_OK;
+    }
+    CURL_TRC_CF(data, cf, "shut down successfully");
+    cf = cf->next;
+  }
+  *done = (!result);
+  return result;
 }
 
 ssize_t Curl_cf_recv(struct Curl_easy *data, int num, char *buf,
@@ -345,8 +403,10 @@ CURLcode Curl_conn_connect(struct Curl_easy *data,
 
   cf = data->conn->cfilter[sockindex];
   DEBUGASSERT(cf);
-  if(!cf)
+  if(!cf) {
+    *done = FALSE;
     return CURLE_FAILED_INIT;
+  }
 
   *done = cf->connected;
   if(!*done) {
@@ -460,6 +520,42 @@ void Curl_conn_adjust_pollset(struct Curl_easy *data,
   for(i = 0; i < 2; ++i) {
     Curl_conn_cf_adjust_pollset(data->conn->cfilter[i], data, ps);
   }
+}
+
+int Curl_conn_cf_poll(struct Curl_cfilter *cf,
+                      struct Curl_easy *data,
+                      timediff_t timeout_ms)
+{
+  struct easy_pollset ps;
+  struct pollfd pfds[MAX_SOCKSPEREASYHANDLE];
+  unsigned int i, npfds = 0;
+
+  DEBUGASSERT(cf);
+  DEBUGASSERT(data);
+  DEBUGASSERT(data->conn);
+  memset(&ps, 0, sizeof(ps));
+  memset(pfds, 0, sizeof(pfds));
+
+  Curl_conn_cf_adjust_pollset(cf, data, &ps);
+  DEBUGASSERT(ps.num <= MAX_SOCKSPEREASYHANDLE);
+  for(i = 0; i < ps.num; ++i) {
+    short events = 0;
+    if(ps.actions[i] & CURL_POLL_IN) {
+      events |= POLLIN;
+    }
+    if(ps.actions[i] & CURL_POLL_OUT) {
+      events |= POLLOUT;
+    }
+    if(events) {
+      pfds[npfds].fd = ps.sockets[i];
+      pfds[npfds].events = events;
+      ++npfds;
+    }
+  }
+
+  if(!npfds)
+    DEBUGF(infof(data, "no sockets to poll!"));
+  return Curl_poll(pfds, npfds, timeout_ms);
 }
 
 void Curl_conn_get_host(struct Curl_easy *data, int sockindex,

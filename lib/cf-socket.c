@@ -145,8 +145,9 @@ static void nosigpipe(struct Curl_easy *data,
 
 #if defined(USE_WINSOCK) || \
    (defined(__sun) && !defined(TCP_KEEPIDLE)) || \
-   (defined(__DragonFly__) && __DragonFly_version < 500702)
-/* Solaris < 11.4, DragonFlyBSD < 500702 and Windows
+   (defined(__DragonFly__) && __DragonFly_version < 500702) || \
+   (defined(_WIN32) && !defined(TCP_KEEPIDLE))
+/* Solaris < 11.4, DragonFlyBSD < 500702 and Windows < 10.0.16299
  * use millisecond units. */
 #define KEEPALIVE_FACTOR(x) (x *= 1000)
 #else
@@ -177,23 +178,50 @@ tcpkeepalive(struct Curl_easy *data,
           sockfd, SOCKERRNO);
   }
   else {
-#if defined(SIO_KEEPALIVE_VALS)
+#if defined(SIO_KEEPALIVE_VALS) /* Windows */
+/* Windows 10, version 1709 (10.0.16299) and later versions */
+#if defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL) && defined(TCP_KEEPCNT)
+    optval = curlx_sltosi(data->set.tcp_keepidle);
+    KEEPALIVE_FACTOR(optval);
+    if(setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPIDLE,
+                (const char *)&optval, sizeof(optval)) < 0) {
+      infof(data, "Failed to set TCP_KEEPIDLE on fd "
+            "%" CURL_FORMAT_SOCKET_T ": errno %d",
+            sockfd, SOCKERRNO);
+    }
+    optval = curlx_sltosi(data->set.tcp_keepintvl);
+    KEEPALIVE_FACTOR(optval);
+    if(setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPINTVL,
+                (const char *)&optval, sizeof(optval)) < 0) {
+      infof(data, "Failed to set TCP_KEEPINTVL on fd "
+            "%" CURL_FORMAT_SOCKET_T ": errno %d",
+            sockfd, SOCKERRNO);
+    }
+    optval = curlx_sltosi(data->set.tcp_keepcnt);
+    if(setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPCNT,
+                (const char *)&optval, sizeof(optval)) < 0) {
+      infof(data, "Failed to set TCP_KEEPCNT on fd "
+            "%" CURL_FORMAT_SOCKET_T ": errno %d",
+            sockfd, SOCKERRNO);
+    }
+#else /* Windows < 10.0.16299 */
     struct tcp_keepalive vals;
     DWORD dummy;
     vals.onoff = 1;
     optval = curlx_sltosi(data->set.tcp_keepidle);
     KEEPALIVE_FACTOR(optval);
-    vals.keepalivetime = optval;
+    vals.keepalivetime = (u_long)optval;
     optval = curlx_sltosi(data->set.tcp_keepintvl);
     KEEPALIVE_FACTOR(optval);
-    vals.keepaliveinterval = optval;
+    vals.keepaliveinterval = (u_long)optval;
     if(WSAIoctl(sockfd, SIO_KEEPALIVE_VALS, (LPVOID) &vals, sizeof(vals),
                 NULL, 0, &dummy, NULL, NULL) != 0) {
       infof(data, "Failed to set SIO_KEEPALIVE_VALS on fd "
                   "%" CURL_FORMAT_SOCKET_T ": errno %d",
                   sockfd, SOCKERRNO);
     }
-#else
+#endif
+#else /* !Windows */
 #ifdef TCP_KEEPIDLE
     optval = curlx_sltosi(data->set.tcp_keepidle);
     KEEPALIVE_FACTOR(optval);
@@ -238,18 +266,28 @@ tcpkeepalive(struct Curl_easy *data,
     /* TCP_KEEPALIVE_ABORT_THRESHOLD should equal to
      * TCP_KEEPCNT * TCP_KEEPINTVL on other platforms.
      * The default value of TCP_KEEPCNT is 9 on Linux,
-     * 8 on *BSD/macOS, 5 or 10 on Windows. We choose
-     * 9 for Solaris <11.4 because there is no default
-     * value for TCP_KEEPCNT on Solaris 11.4.
+     * 8 on *BSD/macOS, 5 or 10 on Windows. We use the
+     * default config for Solaris <11.4 because there is
+     * no default value for TCP_KEEPCNT on Solaris 11.4.
      *
      * Note that the consequent probes will not be sent
      * at equal intervals on Solaris, but will be sent
      * using the exponential backoff algorithm. */
-    optval = 9 * curlx_sltosi(data->set.tcp_keepintvl);
+    optval = curlx_sltosi(data->set.tcp_keepcnt) *
+             curlx_sltosi(data->set.tcp_keepintvl);
     KEEPALIVE_FACTOR(optval);
     if(setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPALIVE_ABORT_THRESHOLD,
           (void *)&optval, sizeof(optval)) < 0) {
       infof(data, "Failed to set TCP_KEEPALIVE_ABORT_THRESHOLD on fd "
+            "%" CURL_FORMAT_SOCKET_T ": errno %d",
+            sockfd, SOCKERRNO);
+    }
+#endif
+#ifdef TCP_KEEPCNT
+    optval = curlx_sltosi(data->set.tcp_keepcnt);
+    if(setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPCNT,
+                (void *)&optval, sizeof(optval)) < 0) {
+      infof(data, "Failed to set TCP_KEEPCNT on fd "
             "%" CURL_FORMAT_SOCKET_T ": errno %d",
             sockfd, SOCKERRNO);
     }
@@ -288,7 +326,7 @@ void Curl_sock_assign_addr(struct Curl_sockaddr_ex *dest,
     dest->protocol = IPPROTO_UDP;
     break;
   }
-  dest->addrlen = ai->ai_addrlen;
+  dest->addrlen = (unsigned int)ai->ai_addrlen;
 
   if(dest->addrlen > sizeof(struct Curl_sockaddr_storage))
     dest->addrlen = sizeof(struct Curl_sockaddr_storage);
@@ -1010,6 +1048,29 @@ static void cf_socket_close(struct Curl_cfilter *cf, struct Curl_easy *data)
   cf->connected = FALSE;
 }
 
+static CURLcode cf_socket_shutdown(struct Curl_cfilter *cf,
+                                   struct Curl_easy *data,
+                                   bool *done)
+{
+  if(cf->connected) {
+    struct cf_socket_ctx *ctx = cf->ctx;
+
+    CURL_TRC_CF(data, cf, "cf_socket_shutdown(%" CURL_FORMAT_SOCKET_T
+                ")", ctx->sock);
+    /* On TCP, and when the socket looks well and non-blocking mode
+     * can be enabled, receive dangling bytes before close to avoid
+     * entering RST states unnecessarily. */
+    if(ctx->sock != CURL_SOCKET_BAD &&
+       ctx->transport == TRNSPRT_TCP &&
+       (curlx_nonblock(ctx->sock, TRUE) >= 0)) {
+      unsigned char buf[1024];
+      (void)sread(ctx->sock, buf, sizeof(buf));
+    }
+  }
+  *done = TRUE;
+  return CURLE_OK;
+}
+
 static void cf_socket_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
 {
   struct cf_socket_ctx *ctx = cf->ctx;
@@ -1063,7 +1124,7 @@ static CURLcode set_remote_ip(struct Curl_cfilter *cf,
   struct cf_socket_ctx *ctx = cf->ctx;
 
   /* store remote address and port used in this connection attempt */
-  if(!Curl_addr2string(&ctx->addr.sa_addr, ctx->addr.addrlen,
+  if(!Curl_addr2string(&ctx->addr.sa_addr, (curl_socklen_t)ctx->addr.addrlen,
                        ctx->ip.remote_ip, &ctx->ip.remote_port)) {
     char buffer[STRERROR_LEN];
 
@@ -1247,7 +1308,8 @@ static int do_connect(struct Curl_cfilter *cf, struct Curl_easy *data,
 #endif
   }
   else {
-    rc = connect(ctx->sock, &ctx->addr.sa_addr, ctx->addr.addrlen);
+    rc = connect(ctx->sock, &ctx->addr.sa_addr,
+                 (curl_socklen_t)ctx->addr.addrlen);
   }
   return rc;
 }
@@ -1728,6 +1790,7 @@ struct Curl_cftype Curl_cft_tcp = {
   cf_socket_destroy,
   cf_tcp_connect,
   cf_socket_close,
+  cf_socket_shutdown,
   cf_socket_get_host,
   cf_socket_adjust_pollset,
   cf_socket_data_pending,
@@ -1785,7 +1848,8 @@ static CURLcode cf_udp_setup_quic(struct Curl_cfilter *cf,
   /* On macOS OpenSSL QUIC fails on connected sockets.
    * see: <https://github.com/openssl/openssl/issues/23251> */
 #else
-  rc = connect(ctx->sock, &ctx->addr.sa_addr, ctx->addr.addrlen);
+  rc = connect(ctx->sock, &ctx->addr.sa_addr,
+               (curl_socklen_t)ctx->addr.addrlen);
   if(-1 == rc) {
     return socket_connect_result(data, ctx->ip.remote_ip, SOCKERRNO);
   }
@@ -1870,6 +1934,7 @@ struct Curl_cftype Curl_cft_udp = {
   cf_socket_destroy,
   cf_udp_connect,
   cf_socket_close,
+  cf_socket_shutdown,
   cf_socket_get_host,
   cf_socket_adjust_pollset,
   cf_socket_data_pending,
@@ -1921,6 +1986,7 @@ struct Curl_cftype Curl_cft_unix = {
   cf_socket_destroy,
   cf_tcp_connect,
   cf_socket_close,
+  cf_socket_shutdown,
   cf_socket_get_host,
   cf_socket_adjust_pollset,
   cf_socket_data_pending,
@@ -1985,6 +2051,7 @@ struct Curl_cftype Curl_cft_tcp_accept = {
   cf_socket_destroy,
   cf_tcp_accept_connect,
   cf_socket_close,
+  cf_socket_shutdown,
   cf_socket_get_host,              /* TODO: not accurate */
   cf_socket_adjust_pollset,
   cf_socket_data_pending,

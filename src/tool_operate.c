@@ -45,6 +45,10 @@
 #  include <proto/dos.h>
 #endif
 
+#ifdef HAVE_NETINET_IN_H
+#  include <netinet/in.h>
+#endif
+
 #define ENABLE_CURLX_PRINTF
 /* use our own printf() functions */
 #include "curlx.h"
@@ -56,6 +60,7 @@
 #include "tool_cb_prg.h"
 #include "tool_cb_rea.h"
 #include "tool_cb_see.h"
+#include "tool_cb_soc.h"
 #include "tool_cb_wrt.h"
 #include "tool_dirhie.h"
 #include "tool_doswin.h"
@@ -93,6 +98,10 @@
 /* since O_BINARY as used in bitmasks, setting it to zero makes it usable in
    source code but yet it doesn't ruin anything */
 #  define O_BINARY 0
+#endif
+
+#ifndef SOL_IP
+#  define SOL_IP IPPROTO_IP
 #endif
 
 #define CURL_CA_CERT_ERRORMSG                                               \
@@ -141,6 +150,68 @@ static bool is_pkcs11_uri(const char *string)
     return FALSE;
   }
 }
+
+#ifdef IP_TOS
+static int get_address_family(curl_socket_t sockfd)
+{
+  struct sockaddr_storage addr;
+  socklen_t addrlen = sizeof(addr);
+  if(getsockname(sockfd, (struct sockaddr *)&addr, &addrlen) == 0)
+    return addr.ss_family;
+  return AF_UNSPEC;
+}
+#endif
+
+#if defined(IP_TOS) || defined(IPV6_TCLASS) || defined(SO_PRIORITY)
+static int sockopt_callback(void *clientp, curl_socket_t curlfd,
+                            curlsocktype purpose)
+{
+  struct OperationConfig *config = (struct OperationConfig *)clientp;
+  if(purpose != CURLSOCKTYPE_IPCXN)
+    return CURL_SOCKOPT_OK;
+  (void)config;
+  (void)curlfd;
+#if defined(IP_TOS) || defined(IPV6_TCLASS)
+  if(config->ip_tos > 0) {
+    int tos = (int)config->ip_tos;
+    int result = 0;
+    switch(get_address_family(curlfd)) {
+    case AF_INET:
+#ifdef IP_TOS
+      result = setsockopt(curlfd, SOL_IP, IP_TOS,
+                          (const char *)&tos, sizeof(tos));
+#endif
+      break;
+    case AF_INET6:
+#ifdef IPV6_TCLASS
+      result = setsockopt(curlfd, IPPROTO_IPV6, IPV6_TCLASS,
+                          (const char *)&tos, sizeof(tos));
+#endif
+      break;
+    }
+    if(result < 0) {
+      int error = errno;
+      warnf(config->global,
+            "Setting type of service to %d failed with errno %d: %s;\n",
+            tos, error, strerror(error));
+    }
+  }
+#endif
+#ifdef SO_PRIORITY
+  if(config->vlan_priority > 0) {
+    int priority = (int)config->vlan_priority;
+    if(setsockopt(curlfd, SOL_SOCKET, SO_PRIORITY,
+      (const char *)&priority, sizeof(priority)) != 0) {
+      int error = errno;
+      warnf(config->global, "VLAN priority %d failed with errno %d: %s;\n",
+            priority, error, strerror(error));
+    }
+  }
+#endif
+  return CURL_SOCKOPT_OK;
+}
+#endif
+
 
 #ifdef __VMS
 /*
@@ -452,7 +523,7 @@ static CURLcode post_per_transfer(struct GlobalConfig *global,
 
   /* if retry-max-time is non-zero, make sure we haven't exceeded the
      time */
-  if(per->retry_numretries &&
+  if(per->retry_remaining &&
      (!config->retry_maxtime ||
       (tvdiff(tvnow(), per->retrystart) <
        config->retry_maxtime*1000L)) ) {
@@ -574,9 +645,9 @@ static CURLcode post_per_transfer(struct GlobalConfig *global,
       warnf(config->global, "Problem %s. "
             "Will retry in %ld seconds. "
             "%ld retries left.",
-            m[retry], sleeptime/1000L, per->retry_numretries);
+            m[retry], sleeptime/1000L, per->retry_remaining);
 
-      per->retry_numretries--;
+      per->retry_remaining--;
       if(!config->retry_delay) {
         per->retry_sleep *= 2;
         if(per->retry_sleep > RETRY_SLEEP_MAX)
@@ -614,10 +685,11 @@ static CURLcode post_per_transfer(struct GlobalConfig *global,
         outs->bytes = 0; /* clear for next round */
       }
       *retryp = TRUE;
+      per->num_retries++;
       *delay = sleeptime;
       return CURLE_OK;
     }
-  } /* if retry_numretries */
+  } /* if retry_remaining */
 noretry:
 
   if((global->progressmode == CURL_PROGRESS_BAR) &&
@@ -1288,6 +1360,10 @@ static CURLcode single_transfer(struct GlobalConfig *global,
 
         if(config->tcp_fastopen)
           my_setopt(curl, CURLOPT_TCP_FASTOPEN, 1L);
+
+        if(config->mptcp)
+          my_setopt(curl, CURLOPT_OPENSOCKETFUNCTION,
+                    tool_socket_open_mptcp_cb);
 
         /* where to store */
         my_setopt(curl, CURLOPT_WRITEDATA, per);
@@ -2035,6 +2111,8 @@ static CURLcode single_transfer(struct GlobalConfig *global,
             my_setopt(curl, CURLOPT_TCP_KEEPIDLE, config->alivetime);
             my_setopt(curl, CURLOPT_TCP_KEEPINTVL, config->alivetime);
           }
+          if(config->alivecnt)
+            my_setopt(curl, CURLOPT_TCP_KEEPCNT, config->alivecnt);
         }
         else
           my_setopt(curl, CURLOPT_TCP_KEEPALIVE, 0L);
@@ -2189,10 +2267,29 @@ static CURLcode single_transfer(struct GlobalConfig *global,
           my_setopt_str(curl, CURLOPT_ECH, config->ech_config);
 #endif
 
+        /* new in 8.9.0 */
+        if(config->ip_tos > 0 || config->vlan_priority > 0) {
+#if defined(IP_TOS) || defined(IPV6_TCLASS) || defined(SO_PRIORITY)
+          my_setopt(curl, CURLOPT_SOCKOPTFUNCTION, sockopt_callback);
+          my_setopt(curl, CURLOPT_SOCKOPTDATA, config);
+#else
+          if(config->ip_tos > 0) {
+            errorf(config->global,
+                  "Type of service is not supported in this build.");
+            result = CURLE_NOT_BUILT_IN;
+          }
+          if(config->vlan_priority > 0) {
+            errorf(config->global,
+                  "VLAN priority is not supported in this build.");
+            result = CURLE_NOT_BUILT_IN;
+          }
+#endif
+        }
+
         /* initialize retry vars for loop below */
         per->retry_sleep_default = (config->retry_delay) ?
           config->retry_delay*1000L : RETRY_SLEEP_DEFAULT; /* ms */
-        per->retry_numretries = config->req_retry;
+        per->retry_remaining = config->req_retry;
         per->retry_sleep = per->retry_sleep_default; /* ms */
         per->retrystart = tvnow();
 

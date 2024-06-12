@@ -521,7 +521,7 @@ static CURLcode h3_data_setup(struct Curl_cfilter *cf,
   struct cf_osslq_ctx *ctx = cf->ctx;
   struct h3_stream_ctx *stream = H3_STREAM_CTX(ctx, data);
 
-  if(!data || !data->req.p.http) {
+  if(!data) {
     failf(data, "initialization failure, transfer not http initialized");
     return CURLE_FAILED_INIT;
   }
@@ -2252,6 +2252,7 @@ struct Curl_cftype Curl_cft_http3 = {
   cf_osslq_destroy,
   cf_osslq_connect,
   cf_osslq_close,
+  Curl_cf_def_shutdown,
   Curl_cf_def_get_host,
   cf_osslq_adjust_pollset,
   cf_osslq_data_pending,

@@ -63,6 +63,7 @@ struct bearssl_ssl_backend_data {
   bool active;
   /* size of pending write, yet to be flushed */
   size_t pending_write;
+  BIT(sent_shutdown);
 };
 
 struct cafile_parser {
@@ -722,6 +723,8 @@ static CURLcode bearssl_run_until(struct Curl_cfilter *cf,
       ret = Curl_conn_cf_send(cf->next, data, (char *)buf, len, &result);
       CURL_TRC_CF(data, cf, "ssl_send(len=%zu) -> %zd, %d", len, ret, result);
       if(ret <= 0) {
+        if(result == CURLE_AGAIN)
+          connssl->io_need |= CURL_SSL_IO_NEED_SEND;
         return result;
       }
       br_ssl_engine_sendrec_ack(&backend->ctx.eng, ret);
@@ -735,6 +738,8 @@ static CURLcode bearssl_run_until(struct Curl_cfilter *cf,
         return CURLE_RECV_ERROR;
       }
       if(ret <= 0) {
+        if(result == CURLE_AGAIN)
+          connssl->io_need |= CURL_SSL_IO_NEED_RECV;
         return result;
       }
       br_ssl_engine_recvrec_ack(&backend->ctx.eng, ret);
@@ -925,9 +930,7 @@ static CURLcode bearssl_connect_common(struct Curl_cfilter *cf,
       return ret;
   }
 
-  while(ssl_connect_2 == connssl->connecting_state ||
-        ssl_connect_2_reading == connssl->connecting_state ||
-        ssl_connect_2_writing == connssl->connecting_state) {
+  while(ssl_connect_2 == connssl->connecting_state) {
     /* check allowed time left */
     timeout_ms = Curl_timeleft(data, NULL, TRUE);
 
@@ -938,13 +941,12 @@ static CURLcode bearssl_connect_common(struct Curl_cfilter *cf,
     }
 
     /* if ssl is expecting something, check if it's available. */
-    if(ssl_connect_2_reading == connssl->connecting_state ||
-       ssl_connect_2_writing == connssl->connecting_state) {
+    if(connssl->io_need) {
 
-      curl_socket_t writefd = ssl_connect_2_writing ==
-        connssl->connecting_state?sockfd:CURL_SOCKET_BAD;
-      curl_socket_t readfd = ssl_connect_2_reading ==
-        connssl->connecting_state?sockfd:CURL_SOCKET_BAD;
+      curl_socket_t writefd = (connssl->io_need & CURL_SSL_IO_NEED_SEND)?
+                              sockfd:CURL_SOCKET_BAD;
+      curl_socket_t readfd = (connssl->io_need & CURL_SSL_IO_NEED_RECV)?
+                             sockfd:CURL_SOCKET_BAD;
 
       CURL_TRC_CF(data, cf, "connect_common, check socket");
       what = Curl_socket_check(readfd, CURL_SOCKET_BAD, writefd,
@@ -975,11 +977,9 @@ static CURLcode bearssl_connect_common(struct Curl_cfilter *cf,
      * before step2 has completed while ensuring that a client using select()
      * or epoll() will always have a valid fdset to wait on.
      */
+    connssl->io_need = CURL_SSL_IO_NEED_NONE;
     ret = bearssl_connect_step2(cf, data);
-    if(ret || (nonblocking &&
-               (ssl_connect_2 == connssl->connecting_state ||
-                ssl_connect_2_reading == connssl->connecting_state ||
-                ssl_connect_2_writing == connssl->connecting_state)))
+    if(ret || (nonblocking && (ssl_connect_2 == connssl->connecting_state)))
       return ret;
   }
 
@@ -1070,6 +1070,41 @@ static void *bearssl_get_internals(struct ssl_connect_data *connssl,
   return &backend->ctx;
 }
 
+static CURLcode bearssl_shutdown(struct Curl_cfilter *cf,
+                                 struct Curl_easy *data,
+                                 bool send_shutdown, bool *done)
+{
+  struct ssl_connect_data *connssl = cf->ctx;
+  struct bearssl_ssl_backend_data *backend =
+    (struct bearssl_ssl_backend_data *)connssl->backend;
+  CURLcode result;
+
+  DEBUGASSERT(backend);
+  if(!backend->active || connssl->shutdown) {
+    *done = TRUE;
+    return CURLE_OK;
+  }
+
+  *done = FALSE;
+  if(!backend->sent_shutdown) {
+    (void)send_shutdown; /* unknown how to suppress our close notify */
+    br_ssl_engine_close(&backend->ctx.eng);
+    backend->sent_shutdown = TRUE;
+  }
+
+  result = bearssl_run_until(cf, data, BR_SSL_CLOSED);
+  if(result == CURLE_OK) {
+    *done = TRUE;
+  }
+  else if(result == CURLE_AGAIN)
+    result = CURLE_OK;
+  else
+    CURL_TRC_CF(data, cf, "shutdown error: %d", result);
+
+  connssl->shutdown = (result || *done);
+  return result;
+}
+
 static void bearssl_close(struct Curl_cfilter *cf, struct Curl_easy *data)
 {
   struct ssl_connect_data *connssl = cf->ctx;
@@ -1080,9 +1115,11 @@ static void bearssl_close(struct Curl_cfilter *cf, struct Curl_easy *data)
   DEBUGASSERT(backend);
 
   if(backend->active) {
+    if(!connssl->shutdown) {
+      bool done;
+      bearssl_shutdown(cf, data, TRUE, &done);
+    }
     backend->active = FALSE;
-    br_ssl_engine_close(&backend->ctx.eng);
-    (void)bearssl_run_until(cf, data, BR_SSL_CLOSED);
   }
   if(backend->anchors) {
     for(i = 0; i < backend->anchors_len; ++i)
@@ -1113,7 +1150,7 @@ const struct Curl_ssl Curl_ssl_bearssl = {
   Curl_none_cleanup,               /* cleanup */
   bearssl_version,                 /* version */
   Curl_none_check_cxn,             /* check_cxn */
-  Curl_none_shutdown,              /* shutdown */
+  bearssl_shutdown,                /* shutdown */
   bearssl_data_pending,            /* data_pending */
   bearssl_random,                  /* random */
   Curl_none_cert_status_request,   /* cert_status_request */

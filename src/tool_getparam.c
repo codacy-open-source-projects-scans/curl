@@ -179,6 +179,7 @@ typedef enum {
   C_JSON,
   C_JUNK_SESSION_COOKIES,
   C_KEEPALIVE,
+  C_KEEPALIVE_CNT,
   C_KEEPALIVE_TIME,
   C_KEY,
   C_KEY_TYPE,
@@ -200,6 +201,7 @@ typedef enum {
   C_MAX_REDIRS,
   C_MAX_TIME,
   C_METALINK,
+  C_MPTCP,
   C_NEGOTIATE,
   C_NETRC,
   C_NETRC_FILE,
@@ -328,6 +330,7 @@ typedef enum {
   C_TRACE_CONFIG,
   C_TRACE_IDS,
   C_TRACE_TIME,
+  C_IP_TOS,
   C_UNIX_SOCKET,
   C_UPLOAD_FILE,
   C_URL,
@@ -338,6 +341,7 @@ typedef enum {
   C_VARIABLE,
   C_VERBOSE,
   C_VERSION,
+  C_VLAN_PRIORITY,
   C_WDEBUG,
   C_WRITE_OUT,
   C_XATTR
@@ -455,12 +459,14 @@ static const struct LongShort aliases[]= {
   {"include",                    ARG_BOOL, 'i', C_INCLUDE},
   {"insecure",                   ARG_BOOL, 'k', C_INSECURE},
   {"interface",                  ARG_STRG, ' ', C_INTERFACE},
+  {"ip-tos",                     ARG_STRG, ' ', C_IP_TOS},
   {"ipfs-gateway",               ARG_STRG, ' ', C_IPFS_GATEWAY},
   {"ipv4",                       ARG_NONE, '4', C_IPV4},
   {"ipv6",                       ARG_NONE, '6', C_IPV6},
   {"json",                       ARG_STRG, ' ', C_JSON},
   {"junk-session-cookies",       ARG_BOOL, 'j', C_JUNK_SESSION_COOKIES},
   {"keepalive",                  ARG_BOOL, ' ', C_KEEPALIVE},
+  {"keepalive-cnt",              ARG_STRG, ' ', C_KEEPALIVE_CNT},
   {"keepalive-time",             ARG_STRG, ' ', C_KEEPALIVE_TIME},
   {"key",                        ARG_FILE, ' ', C_KEY},
   {"key-type",                   ARG_STRG, ' ', C_KEY_TYPE},
@@ -482,6 +488,7 @@ static const struct LongShort aliases[]= {
   {"max-redirs",                 ARG_STRG, ' ', C_MAX_REDIRS},
   {"max-time",                   ARG_STRG, 'm', C_MAX_TIME},
   {"metalink",                   ARG_BOOL, ' ', C_METALINK},
+  {"mptcp",                      ARG_BOOL, ' ', C_MPTCP},
   {"negotiate",                  ARG_BOOL, ' ', C_NEGOTIATE},
   {"netrc",                      ARG_BOOL, 'n', C_NETRC},
   {"netrc-file",                 ARG_FILE, ' ', C_NETRC_FILE},
@@ -620,6 +627,7 @@ static const struct LongShort aliases[]= {
   {"variable",                   ARG_STRG, ' ', C_VARIABLE},
   {"verbose",                    ARG_BOOL, 'v', C_VERBOSE},
   {"version",                    ARG_BOOL, 'V', C_VERSION},
+  {"vlan-priority",              ARG_STRG, ' ', C_VLAN_PRIORITY},
 #ifdef USE_WATT32
   {"wdebug",                     ARG_BOOL, ' ', C_WDEBUG},
 #endif
@@ -1025,6 +1033,52 @@ static const struct LongShort *single(char letter)
     singles_done = TRUE;
   }
   return singles[letter - ' '];
+}
+
+struct TOSEntry {
+  const char *name;
+  unsigned char value;
+};
+
+static const struct TOSEntry tos_entries[] = {
+  {"AF11", 0x28},
+  {"AF12", 0x30},
+  {"AF13", 0x38},
+  {"AF21", 0x48},
+  {"AF22", 0x50},
+  {"AF23", 0x58},
+  {"AF31", 0x68},
+  {"AF32", 0x70},
+  {"AF33", 0x78},
+  {"AF41", 0x88},
+  {"AF42", 0x90},
+  {"AF43", 0x98},
+  {"CE",   0x03},
+  {"CS0",  0x00},
+  {"CS1",  0x20},
+  {"CS2",  0x40},
+  {"CS3",  0x60},
+  {"CS4",  0x80},
+  {"CS5",  0xa0},
+  {"CS6",  0xc0},
+  {"CS7",  0xe0},
+  {"ECT0", 0x02},
+  {"ECT1", 0x01},
+  {"EF",   0xb8},
+  {"LE",   0x04},
+  {"LOWCOST",     0x02},
+  {"LOWDELAY",    0x10},
+  {"MINCOST",     0x02},
+  {"RELIABILITY", 0x04},
+  {"THROUGHPUT",  0x08},
+  {"VOICE-ADMIT", 0xb0}
+};
+
+static int find_tos(const void *a, const void *b)
+{
+  const struct TOSEntry *aa = a;
+  const struct TOSEntry *bb = b;
+  return strcmp(aa->name, bb->name);
 }
 
 #define MAX_QUERY_LEN 100000 /* larger is not likely to ever work */
@@ -1630,6 +1684,19 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
     case C_TCP_NODELAY: /* --tcp-nodelay */
       config->tcp_nodelay = toggle;
       break;
+    case C_IP_TOS: { /* --ip-tos */
+      const struct TOSEntry *entry = bsearch(
+        &nextarg, tos_entries, sizeof(tos_entries)/sizeof(*tos_entries),
+        sizeof(*tos_entries), find_tos);
+      if(entry)
+        config->ip_tos = entry->value;
+      else /* numeric tos value */
+        err = str2unummax(&config->ip_tos, nextarg, 0xFF);
+      break;
+    }
+    case C_VLAN_PRIORITY: /* --vlan-priority */
+      err = str2unummax(&config->vlan_priority, nextarg, 7);
+      break;
     case C_PROXY_DIGEST: /* --proxy-digest */
       config->proxydigest = toggle;
       break;
@@ -1760,6 +1827,9 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
       break;
     case C_KEEPALIVE_TIME: /* --keepalive-time */
       err = str2unum(&config->alivetime, nextarg);
+      break;
+    case C_KEEPALIVE_CNT: /* --keepalive-cnt */
+      err = str2unum(&config->alivecnt, nextarg);
       break;
     case C_POST301: /* --post301 */
       config->post301 = toggle;
@@ -2792,6 +2862,9 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
                 "See curl_getdate(3) for valid date syntax.");
         }
       }
+      break;
+    case C_MPTCP: /* --mptcp */
+      config->mptcp = TRUE;
       break;
     default: /* unknown flag */
       err = PARAM_OPTION_UNKNOWN;

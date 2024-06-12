@@ -153,6 +153,7 @@ struct st_ssl_backend_data {
   SSLContextRef ssl_ctx;
   bool ssl_direction; /* true if writing, false if reading */
   size_t ssl_write_buffered_length;
+  BIT(sent_shutdown);
 };
 
 /* Create the list of default ciphers to use by making an intersection of the
@@ -1948,21 +1949,20 @@ static CURLcode sectransp_connect_step2(struct Curl_cfilter *cf,
   SSLCipherSuite cipher;
   SSLProtocol protocol = 0;
 
-  DEBUGASSERT(ssl_connect_2 == connssl->connecting_state
-              || ssl_connect_2_reading == connssl->connecting_state
-              || ssl_connect_2_writing == connssl->connecting_state);
+  DEBUGASSERT(ssl_connect_2 == connssl->connecting_state);
   DEBUGASSERT(backend);
   CURL_TRC_CF(data, cf, "connect_step2");
 
   /* Here goes nothing: */
 check_handshake:
+  connssl->io_need = CURL_SSL_IO_NEED_NONE;
   err = SSLHandshake(backend->ssl_ctx);
 
   if(err != noErr) {
     switch(err) {
       case errSSLWouldBlock:  /* they're not done with us yet */
-        connssl->connecting_state = backend->ssl_direction ?
-            ssl_connect_2_writing : ssl_connect_2_reading;
+        connssl->io_need = backend->ssl_direction ?
+            CURL_SSL_IO_NEED_SEND : CURL_SSL_IO_NEED_RECV;
         return CURLE_OK;
 
       /* The below is errSSLServerAuthCompleted; it's not defined in
@@ -2460,9 +2460,7 @@ sectransp_connect_common(struct Curl_cfilter *cf, struct Curl_easy *data,
       return result;
   }
 
-  while(ssl_connect_2 == connssl->connecting_state ||
-        ssl_connect_2_reading == connssl->connecting_state ||
-        ssl_connect_2_writing == connssl->connecting_state) {
+  while(ssl_connect_2 == connssl->connecting_state) {
 
     /* check allowed time left */
     const timediff_t timeout_ms = Curl_timeleft(data, NULL, TRUE);
@@ -2474,13 +2472,12 @@ sectransp_connect_common(struct Curl_cfilter *cf, struct Curl_easy *data,
     }
 
     /* if ssl is expecting something, check if it's available. */
-    if(connssl->connecting_state == ssl_connect_2_reading ||
-       connssl->connecting_state == ssl_connect_2_writing) {
+    if(connssl->io_need) {
 
-      curl_socket_t writefd = ssl_connect_2_writing ==
-      connssl->connecting_state?sockfd:CURL_SOCKET_BAD;
-      curl_socket_t readfd = ssl_connect_2_reading ==
-      connssl->connecting_state?sockfd:CURL_SOCKET_BAD;
+      curl_socket_t writefd = (connssl->io_need & CURL_SSL_IO_NEED_SEND)?
+                              sockfd:CURL_SOCKET_BAD;
+      curl_socket_t readfd = (connssl->io_need & CURL_SSL_IO_NEED_RECV)?
+                             sockfd:CURL_SOCKET_BAD;
 
       what = Curl_socket_check(readfd, CURL_SOCKET_BAD, writefd,
                                nonblocking ? 0 : timeout_ms);
@@ -2510,10 +2507,7 @@ sectransp_connect_common(struct Curl_cfilter *cf, struct Curl_easy *data,
      * or epoll() will always have a valid fdset to wait on.
      */
     result = sectransp_connect_step2(cf, data);
-    if(result || (nonblocking &&
-                  (ssl_connect_2 == connssl->connecting_state ||
-                   ssl_connect_2_reading == connssl->connecting_state ||
-                   ssl_connect_2_writing == connssl->connecting_state)))
+    if(result || (nonblocking && (ssl_connect_2 == connssl->connecting_state)))
       return result;
 
   } /* repeat step2 until all transactions are done. */
@@ -2562,6 +2556,92 @@ static CURLcode sectransp_connect(struct Curl_cfilter *cf,
   return CURLE_OK;
 }
 
+static ssize_t sectransp_recv(struct Curl_cfilter *cf,
+                              struct Curl_easy *data,
+                              char *buf,
+                              size_t buffersize,
+                              CURLcode *curlcode);
+
+static CURLcode sectransp_shutdown(struct Curl_cfilter *cf,
+                                   struct Curl_easy *data,
+                                   bool send_shutdown, bool *done)
+{
+  struct ssl_connect_data *connssl = cf->ctx;
+  struct st_ssl_backend_data *backend =
+    (struct st_ssl_backend_data *)connssl->backend;
+  CURLcode result = CURLE_OK;
+  ssize_t nread;
+  char buf[1024];
+  size_t i;
+
+  DEBUGASSERT(backend);
+  if(!backend->ssl_ctx || connssl->shutdown) {
+    *done = TRUE;
+    goto out;
+  }
+
+  connssl->io_need = CURL_SSL_IO_NEED_NONE;
+  *done = FALSE;
+
+  if(send_shutdown && !backend->sent_shutdown) {
+    OSStatus err;
+
+    CURL_TRC_CF(data, cf, "shutdown, send close notify");
+    err = SSLClose(backend->ssl_ctx);
+    switch(err) {
+      case noErr:
+        backend->sent_shutdown = TRUE;
+        break;
+      case errSSLWouldBlock:
+        connssl->io_need = CURL_SSL_IO_NEED_SEND;
+        result = CURLE_OK;
+        goto out;
+      default:
+        CURL_TRC_CF(data, cf, "shutdown, error: %d", (int)err);
+        result = CURLE_SEND_ERROR;
+        goto out;
+    }
+  }
+
+  for(i = 0; i < 10; ++i) {
+    if(!backend->sent_shutdown) {
+      nread = sectransp_recv(cf, data, buf, (int)sizeof(buf), &result);
+    }
+    else {
+      /* We would like to read the close notify from the server using
+       * secure transport, however SSLRead() no longer works after we
+       * sent the notify from our side. So, we just read from the
+       * underlying filter and hope it will end. */
+      nread = Curl_conn_cf_recv(cf->next, data, buf, sizeof(buf), &result);
+    }
+    CURL_TRC_CF(data, cf, "shutdown read -> %zd, %d", nread, result);
+    if(nread <= 0)
+      break;
+  }
+
+  if(nread > 0) {
+    /* still data coming in? */
+    connssl->io_need = CURL_SSL_IO_NEED_RECV;
+  }
+  else if(nread == 0) {
+    /* We got the close notify alert and are done. */
+    CURL_TRC_CF(data, cf, "shutdown done");
+    *done = TRUE;
+  }
+  else if(result == CURLE_AGAIN) {
+    connssl->io_need = CURL_SSL_IO_NEED_RECV;
+    result = CURLE_OK;
+  }
+  else {
+    DEBUGASSERT(result);
+    CURL_TRC_CF(data, cf, "shutdown, error: %d", result);
+  }
+
+out:
+  connssl->shutdown = (result || *done);
+  return result;
+}
+
 static void sectransp_close(struct Curl_cfilter *cf, struct Curl_easy *data)
 {
   struct ssl_connect_data *connssl = cf->ctx;
@@ -2574,7 +2654,12 @@ static void sectransp_close(struct Curl_cfilter *cf, struct Curl_easy *data)
 
   if(backend->ssl_ctx) {
     CURL_TRC_CF(data, cf, "close");
-    (void)SSLClose(backend->ssl_ctx);
+    if(cf->connected && !connssl->shutdown &&
+       cf->next && cf->next->connected && !connssl->peer_closed) {
+      bool done;
+      (void)sectransp_shutdown(cf, data, TRUE, &done);
+    }
+
 #if CURL_BUILD_MAC_10_8 || CURL_BUILD_IOS
     if(SSLCreateContext)
       CFRelease(backend->ssl_ctx);
@@ -2587,69 +2672,6 @@ static void sectransp_close(struct Curl_cfilter *cf, struct Curl_easy *data)
 #endif /* CURL_BUILD_MAC_10_8 || CURL_BUILD_IOS */
     backend->ssl_ctx = NULL;
   }
-}
-
-static int sectransp_shutdown(struct Curl_cfilter *cf,
-                              struct Curl_easy *data)
-{
-  struct ssl_connect_data *connssl = cf->ctx;
-  struct st_ssl_backend_data *backend =
-    (struct st_ssl_backend_data *)connssl->backend;
-  ssize_t nread;
-  int what;
-  int rc;
-  char buf[120];
-  int loop = 10; /* avoid getting stuck */
-  CURLcode result;
-
-  DEBUGASSERT(backend);
-
-  if(!backend->ssl_ctx)
-    return 0;
-
-#ifndef CURL_DISABLE_FTP
-  if(data->set.ftp_ccc != CURLFTPSSL_CCC_ACTIVE)
-    return 0;
-#endif
-
-  sectransp_close(cf, data);
-
-  rc = 0;
-
-  what = SOCKET_READABLE(Curl_conn_cf_get_socket(cf, data),
-                         SSL_SHUTDOWN_TIMEOUT);
-
-  CURL_TRC_CF(data, cf, "shutdown");
-  while(loop--) {
-    if(what < 0) {
-      /* anything that gets here is fatally bad */
-      failf(data, "select/poll on SSL socket, errno: %d", SOCKERRNO);
-      rc = -1;
-      break;
-    }
-
-    if(!what) {                                /* timeout */
-      failf(data, "SSL shutdown timeout");
-      break;
-    }
-
-    /* Something to read, let's do it and hope that it is the close
-     notify alert from the server. No way to SSL_Read now, so use read(). */
-
-    nread = Curl_conn_cf_recv(cf->next, data, buf, sizeof(buf), &result);
-
-    if(nread < 0) {
-      failf(data, "read: %s", curl_easy_strerror(result));
-      rc = -1;
-    }
-
-    if(nread <= 0)
-      break;
-
-    what = SOCKET_READABLE(Curl_conn_cf_get_socket(cf, data), 0);
-  }
-
-  return rc;
 }
 
 static size_t sectransp_version(char *buffer, size_t size)

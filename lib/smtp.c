@@ -695,7 +695,7 @@ static CURLcode smtp_perform_mail(struct Curl_easy *data)
   /* Prepare the mime data if some. */
   if(data->set.mimepost.kind != MIMEKIND_NONE) {
     /* Use the whole structure as data. */
-    data->set.mimepost.flags &= ~MIME_BODY_ONLY;
+    data->set.mimepost.flags &= ~(unsigned int)MIME_BODY_ONLY;
 
     /* Add external headers and mime version. */
     curl_mime_headers(&data->set.mimepost, data->set.headers, 0);
@@ -1164,7 +1164,7 @@ static CURLcode smtp_state_data_resp(struct Curl_easy *data, int smtpcode,
     Curl_pgrsSetUploadSize(data, data->state.infilesize);
 
     /* SMTP upload */
-    Curl_xfer_setup(data, -1, -1, FALSE, FIRSTSOCKET);
+    Curl_xfer_setup1(data, CURL_XFER_SEND, -1, FALSE);
 
     /* End of DO phase */
     smtp_state(data, SMTP_STOP);
@@ -1550,7 +1550,7 @@ static CURLcode smtp_dophase_done(struct Curl_easy *data, bool connected)
 
   if(smtp->transfer != PPTRANSFER_BODY)
     /* no data to transfer */
-    Curl_xfer_setup(data, -1, -1, FALSE, -1);
+    Curl_xfer_setup_nop(data);
 
   return CURLE_OK;
 }

@@ -659,11 +659,11 @@ wolfssl_connect_step1(struct Curl_cfilter *cf, struct Curl_easy *data)
 #ifndef NO_OLD_TLS
     req_method = TLSv1_1_client_method();
     use_sni(TRUE);
+    break;
 #else
     failf(data, "wolfSSL does not support TLS 1.1");
     return CURLE_NOT_BUILT_IN;
 #endif
-    break;
   case CURL_SSLVERSION_TLSv1_2:
 #ifndef WOLFSSL_NO_TLS12
     req_method = TLSv1_2_client_method();
@@ -1047,6 +1047,7 @@ wolfssl_connect_step2(struct Curl_cfilter *cf, struct Curl_easy *data)
     backend->x509_store_setup = wssl.x509_store_setup;
   }
 
+  connssl->io_need = CURL_SSL_IO_NEED_NONE;
   ret = wolfSSL_connect(backend->handle);
 
 #ifdef OPENSSL_EXTRA
@@ -1078,11 +1079,11 @@ wolfssl_connect_step2(struct Curl_cfilter *cf, struct Curl_easy *data)
     int  detail = wolfSSL_get_error(backend->handle, ret);
 
     if(SSL_ERROR_WANT_READ == detail) {
-      connssl->connecting_state = ssl_connect_2_reading;
+      connssl->io_need = CURL_SSL_IO_NEED_RECV;
       return CURLE_OK;
     }
     else if(SSL_ERROR_WANT_WRITE == detail) {
-      connssl->connecting_state = ssl_connect_2_writing;
+      connssl->io_need = CURL_SSL_IO_NEED_SEND;
       return CURLE_OK;
     }
     /* There is no easy way to override only the CN matching.
@@ -1340,6 +1341,99 @@ static ssize_t wolfssl_send(struct Curl_cfilter *cf,
   return rc;
 }
 
+static CURLcode wolfssl_shutdown(struct Curl_cfilter *cf,
+                                 struct Curl_easy *data,
+                                 bool send_shutdown, bool *done)
+{
+  struct ssl_connect_data *connssl = cf->ctx;
+  struct wolfssl_ctx *wctx = (struct wolfssl_ctx *)connssl->backend;
+  CURLcode result = CURLE_OK;
+  char buf[1024];
+  int nread, err;
+
+  DEBUGASSERT(wctx);
+  if(!wctx->handle || connssl->shutdown) {
+    *done = TRUE;
+    goto out;
+  }
+
+  connssl->io_need = CURL_SSL_IO_NEED_NONE;
+  *done = FALSE;
+  if(!(wolfSSL_get_shutdown(wctx->handle) & SSL_SENT_SHUTDOWN)) {
+    /* We have not started the shutdown from our side yet. Check
+     * if the server already sent us one. */
+    ERR_clear_error();
+    nread = wolfSSL_read(wctx->handle, buf, (int)sizeof(buf));
+    err = wolfSSL_get_error(wctx->handle, nread);
+    if(!nread && err == SSL_ERROR_ZERO_RETURN) {
+      bool input_pending;
+      /* Yes, it did. */
+      if(!send_shutdown) {
+        connssl->shutdown = TRUE;
+        CURL_TRC_CF(data, cf, "SSL shutdown received, not sending");
+        goto out;
+      }
+      else if(!cf->next->cft->is_alive(cf->next, data, &input_pending)) {
+        /* Server closed the connection after its closy notify. It
+         * seems not interested to see our close notify, so do not
+         * send it. We are done. */
+        connssl->peer_closed = TRUE;
+        connssl->shutdown = TRUE;
+        CURL_TRC_CF(data, cf, "peer closed connection");
+        goto out;
+      }
+    }
+  }
+
+  if(send_shutdown && wolfSSL_shutdown(wctx->handle) == 1) {
+    CURL_TRC_CF(data, cf, "SSL shutdown finished");
+    *done = TRUE;
+    goto out;
+  }
+  else {
+    size_t i;
+    /* SSL should now have started the shutdown from our side. Since it
+     * was not complete, we are lacking the close notify from the server. */
+    for(i = 0; i < 10; ++i) {
+      ERR_clear_error();
+      nread = wolfSSL_read(wctx->handle, buf, (int)sizeof(buf));
+      if(nread <= 0)
+        break;
+    }
+    err = wolfSSL_get_error(wctx->handle, nread);
+    switch(err) {
+    case SSL_ERROR_ZERO_RETURN: /* no more data */
+      CURL_TRC_CF(data, cf, "SSL shutdown received");
+      *done = TRUE;
+      break;
+    case SSL_ERROR_NONE: /* just did not get anything */
+    case SSL_ERROR_WANT_READ:
+      /* SSL has send its notify and now wants to read the reply
+       * from the server. We are not really interested in that. */
+      CURL_TRC_CF(data, cf, "SSL shutdown sent, want receive");
+      connssl->io_need = CURL_SSL_IO_NEED_RECV;
+      break;
+    case SSL_ERROR_WANT_WRITE:
+      CURL_TRC_CF(data, cf, "SSL shutdown send blocked");
+      connssl->io_need = CURL_SSL_IO_NEED_SEND;
+      break;
+    default: {
+      char error_buffer[WOLFSSL_MAX_ERROR_SZ];
+      int detail = wolfSSL_get_error(wctx->handle, err);
+      CURL_TRC_CF(data, cf, "SSL shutdown, error: '%s'(%d)",
+                  wolfSSL_ERR_error_string((unsigned long)err, error_buffer),
+                  detail);
+      result = CURLE_RECV_ERROR;
+      break;
+    }
+    }
+  }
+
+out:
+  connssl->shutdown = (result || *done);
+  return result;
+}
+
 static void wolfssl_close(struct Curl_cfilter *cf, struct Curl_easy *data)
 {
   struct ssl_connect_data *connssl = cf->ctx;
@@ -1351,12 +1445,11 @@ static void wolfssl_close(struct Curl_cfilter *cf, struct Curl_easy *data)
   DEBUGASSERT(backend);
 
   if(backend->handle) {
-    char buf[32];
-    /* Maybe the server has already sent a close notify alert.
-       Read it to avoid an RST on the TCP connection. */
-    (void)wolfSSL_read(backend->handle, buf, (int)sizeof(buf));
-    if(!connssl->peer_closed)
-      (void)wolfSSL_shutdown(backend->handle);
+    if(cf->connected && !connssl->shutdown &&
+       cf->next && cf->next->connected && !connssl->peer_closed) {
+      bool done;
+      (void)wolfssl_shutdown(cf, data, TRUE, &done);
+    }
     wolfSSL_free(backend->handle);
     backend->handle = NULL;
   }
@@ -1467,31 +1560,6 @@ static bool wolfssl_data_pending(struct Curl_cfilter *cf,
     return FALSE;
 }
 
-
-/*
- * This function is called to shut down the SSL layer but keep the
- * socket open (CCC - Clear Command Channel)
- */
-static int wolfssl_shutdown(struct Curl_cfilter *cf,
-                            struct Curl_easy *data)
-{
-  struct ssl_connect_data *ctx = cf->ctx;
-  struct wolfssl_ctx *backend;
-  int retval = 0;
-
-  (void)data;
-  DEBUGASSERT(ctx && ctx->backend);
-
-  backend = (struct wolfssl_ctx *)ctx->backend;
-  if(backend->handle) {
-    wolfSSL_ERR_clear_error();
-    wolfSSL_free(backend->handle);
-    backend->handle = NULL;
-  }
-  return retval;
-}
-
-
 static CURLcode
 wolfssl_connect_common(struct Curl_cfilter *cf,
                        struct Curl_easy *data,
@@ -1524,9 +1592,7 @@ wolfssl_connect_common(struct Curl_cfilter *cf,
       return result;
   }
 
-  while(ssl_connect_2 == connssl->connecting_state ||
-        ssl_connect_2_reading == connssl->connecting_state ||
-        ssl_connect_2_writing == connssl->connecting_state) {
+  while(ssl_connect_2 == connssl->connecting_state) {
 
     /* check allowed time left */
     const timediff_t timeout_ms = Curl_timeleft(data, NULL, TRUE);
@@ -1538,13 +1604,12 @@ wolfssl_connect_common(struct Curl_cfilter *cf,
     }
 
     /* if ssl is expecting something, check if it's available. */
-    if(connssl->connecting_state == ssl_connect_2_reading
-       || connssl->connecting_state == ssl_connect_2_writing) {
+    if(connssl->io_need) {
 
-      curl_socket_t writefd = ssl_connect_2_writing ==
-        connssl->connecting_state?sockfd:CURL_SOCKET_BAD;
-      curl_socket_t readfd = ssl_connect_2_reading ==
-        connssl->connecting_state?sockfd:CURL_SOCKET_BAD;
+      curl_socket_t writefd = (connssl->io_need & CURL_SSL_IO_NEED_SEND)?
+                              sockfd:CURL_SOCKET_BAD;
+      curl_socket_t readfd = (connssl->io_need & CURL_SSL_IO_NEED_RECV)?
+                             sockfd:CURL_SOCKET_BAD;
 
       what = Curl_socket_check(readfd, CURL_SOCKET_BAD, writefd,
                                nonblocking?0:timeout_ms);
@@ -1575,10 +1640,7 @@ wolfssl_connect_common(struct Curl_cfilter *cf,
      * have a valid fdset to wait on.
      */
     result = wolfssl_connect_step2(cf, data);
-    if(result || (nonblocking &&
-                  (ssl_connect_2 == connssl->connecting_state ||
-                   ssl_connect_2_reading == connssl->connecting_state ||
-                   ssl_connect_2_writing == connssl->connecting_state)))
+    if(result || (nonblocking && (ssl_connect_2 == connssl->connecting_state)))
       return result;
   } /* repeat step2 until all transactions are done. */
 

@@ -467,6 +467,7 @@ CURLcode Curl_init_userdefined(struct Curl_easy *data)
   set->tcp_keepalive = FALSE;
   set->tcp_keepintvl = 60;
   set->tcp_keepidle = 60;
+  set->tcp_keepcnt = 9;
   set->tcp_fastopen = FALSE;
   set->tcp_nodelay = TRUE;
   set->ssl_enable_alpn = TRUE;
@@ -1643,7 +1644,7 @@ const struct Curl_handler *Curl_getn_scheme_handler(const char *scheme,
     unsigned int c = 978;
     while(l) {
       c <<= 5;
-      c += Curl_raw_tolower(*s);
+      c += (unsigned int)Curl_raw_tolower(*s);
       s++;
       l--;
     }
@@ -1796,12 +1797,12 @@ static CURLcode parseurlandfillconn(struct Curl_easy *data,
 
   if(!use_set_uh) {
     char *newurl;
-    uc = curl_url_set(uh, CURLUPART_URL, data->state.url,
-                      CURLU_GUESS_SCHEME |
-                      CURLU_NON_SUPPORT_SCHEME |
-                      (data->set.disallow_username_in_url ?
-                       CURLU_DISALLOW_USER : 0) |
-                      (data->set.path_as_is ? CURLU_PATH_AS_IS : 0));
+    uc = curl_url_set(uh, CURLUPART_URL, data->state.url, (unsigned int)
+                      (CURLU_GUESS_SCHEME |
+                       CURLU_NON_SUPPORT_SCHEME |
+                       (data->set.disallow_username_in_url ?
+                        CURLU_DISALLOW_USER : 0) |
+                       (data->set.path_as_is ? CURLU_PATH_AS_IS : 0)));
     if(uc) {
       failf(data, "URL rejected: %s", curl_url_strerror(uc));
       return Curl_uc_to_curlcode(uc);
@@ -3547,7 +3548,7 @@ static CURLcode create_conn(struct Curl_easy *data,
         (void)conn->handler->done(data, result, FALSE);
         goto out;
       }
-      Curl_xfer_setup(data, -1, -1, FALSE, -1);
+      Curl_xfer_setup_nop(data);
     }
 
     /* since we skip do_init() */
@@ -3662,10 +3663,16 @@ static CURLcode create_conn(struct Curl_easy *data,
       conn_candidate = Curl_conncache_extract_oldest(data);
       if(conn_candidate)
         Curl_disconnect(data, conn_candidate, FALSE);
-      else {
-        infof(data, "No connections available in cache");
-        connections_available = FALSE;
-      }
+      else
+#ifndef CURL_DISABLE_DOH
+        if(data->set.dohfor)
+          infof(data, "Allowing DoH to override max connection limit");
+        else
+#endif
+        {
+          infof(data, "No connections available in cache");
+          connections_available = FALSE;
+        }
     }
 
     if(!connections_available) {

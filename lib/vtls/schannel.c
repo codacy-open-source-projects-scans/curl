@@ -1332,7 +1332,8 @@ schannel_connect_step2(struct Curl_cfilter *cf, struct Curl_easy *data)
 
   DEBUGASSERT(backend);
 
-  doread = (connssl->connecting_state != ssl_connect_2_writing) ? TRUE : FALSE;
+  doread = (connssl->io_need & CURL_SSL_IO_NEED_SEND)? FALSE : TRUE;
+  connssl->io_need = CURL_SSL_IO_NEED_NONE;
 
   DEBUGF(infof(data,
                "schannel: SSL/TLS connection with %s port %d (step 2/3)",
@@ -1393,8 +1394,7 @@ schannel_connect_step2(struct Curl_cfilter *cf, struct Curl_easy *data)
                                backend->encdata_offset,
                                &result);
       if(result == CURLE_AGAIN) {
-        if(connssl->connecting_state != ssl_connect_2_writing)
-          connssl->connecting_state = ssl_connect_2_reading;
+        connssl->io_need = CURL_SSL_IO_NEED_RECV;
         DEBUGF(infof(data, "schannel: failed to receive handshake, "
                      "need more data"));
         return CURLE_OK;
@@ -1448,7 +1448,7 @@ schannel_connect_step2(struct Curl_cfilter *cf, struct Curl_easy *data)
     /* check if the handshake was incomplete */
     if(sspi_status == SEC_E_INCOMPLETE_MESSAGE) {
       backend->encdata_is_incomplete = true;
-      connssl->connecting_state = ssl_connect_2_reading;
+      connssl->io_need = CURL_SSL_IO_NEED_RECV;
       DEBUGF(infof(data,
                    "schannel: received incomplete message, need more data"));
       return CURLE_OK;
@@ -1460,7 +1460,7 @@ schannel_connect_step2(struct Curl_cfilter *cf, struct Curl_easy *data)
     if(sspi_status == SEC_I_INCOMPLETE_CREDENTIALS &&
        !(backend->req_flags & ISC_REQ_USE_SUPPLIED_CREDS)) {
       backend->req_flags |= ISC_REQ_USE_SUPPLIED_CREDS;
-      connssl->connecting_state = ssl_connect_2_writing;
+      connssl->io_need = CURL_SSL_IO_NEED_SEND;
       DEBUGF(infof(data,
                    "schannel: a client certificate has been requested"));
       return CURLE_OK;
@@ -1560,7 +1560,7 @@ schannel_connect_step2(struct Curl_cfilter *cf, struct Curl_easy *data)
 
   /* check if the handshake needs to be continued */
   if(sspi_status == SEC_I_CONTINUE_NEEDED) {
-    connssl->connecting_state = ssl_connect_2_reading;
+    connssl->io_need = CURL_SSL_IO_NEED_RECV;
     return CURLE_OK;
   }
 
@@ -1867,9 +1867,7 @@ schannel_connect_common(struct Curl_cfilter *cf,
       return result;
   }
 
-  while(ssl_connect_2 == connssl->connecting_state ||
-        ssl_connect_2_reading == connssl->connecting_state ||
-        ssl_connect_2_writing == connssl->connecting_state) {
+  while(ssl_connect_2 == connssl->connecting_state) {
 
     /* check out how much more time we're allowed */
     timeout_ms = Curl_timeleft(data, NULL, TRUE);
@@ -1881,13 +1879,12 @@ schannel_connect_common(struct Curl_cfilter *cf,
     }
 
     /* if ssl is expecting something, check if it's available. */
-    if(connssl->connecting_state == ssl_connect_2_reading
-       || connssl->connecting_state == ssl_connect_2_writing) {
+    if(connssl->io_need) {
 
-      curl_socket_t writefd = ssl_connect_2_writing ==
-        connssl->connecting_state ? sockfd : CURL_SOCKET_BAD;
-      curl_socket_t readfd = ssl_connect_2_reading ==
-        connssl->connecting_state ? sockfd : CURL_SOCKET_BAD;
+      curl_socket_t writefd = (connssl->io_need & CURL_SSL_IO_NEED_SEND)?
+                              sockfd : CURL_SOCKET_BAD;
+      curl_socket_t readfd = (connssl->io_need & CURL_SSL_IO_NEED_RECV)?
+                             sockfd : CURL_SOCKET_BAD;
 
       what = Curl_socket_check(readfd, CURL_SOCKET_BAD, writefd,
                                nonblocking ? 0 : timeout_ms);
@@ -1918,10 +1915,7 @@ schannel_connect_common(struct Curl_cfilter *cf,
      * have a valid fdset to wait on.
      */
     result = schannel_connect_step2(cf, data);
-    if(result || (nonblocking &&
-                  (ssl_connect_2 == connssl->connecting_state ||
-                   ssl_connect_2_reading == connssl->connecting_state ||
-                   ssl_connect_2_writing == connssl->connecting_state)))
+    if(result || (nonblocking && (ssl_connect_2 == connssl->connecting_state)))
       return result;
 
   } /* repeat step2 until all transactions are done. */
@@ -2320,7 +2314,8 @@ schannel_recv(struct Curl_cfilter *cf, struct Curl_easy *data,
         /* begin renegotiation */
         infof(data, "schannel: renegotiating SSL/TLS connection");
         connssl->state = ssl_connection_negotiating;
-        connssl->connecting_state = ssl_connect_2_writing;
+        connssl->connecting_state = ssl_connect_2;
+        connssl->io_need = CURL_SSL_IO_NEED_SEND;
         backend->recv_renegotiating = true;
         *err = schannel_connect_common(cf, data, FALSE, &done);
         backend->recv_renegotiating = false;
@@ -2475,8 +2470,9 @@ static bool schannel_data_pending(struct Curl_cfilter *cf,
 /* shut down the SSL connection and clean up related memory.
    this function can be called multiple times on the same connection including
    if the SSL connection failed (eg connection made but failed handshake). */
-static int schannel_shutdown(struct Curl_cfilter *cf,
-                             struct Curl_easy *data)
+static CURLcode schannel_shutdown(struct Curl_cfilter *cf,
+                                  struct Curl_easy *data,
+                                  bool send_shutdown, bool *done)
 {
   /* See https://msdn.microsoft.com/en-us/library/windows/desktop/aa380138.aspx
    * Shutting Down an Schannel Connection
@@ -2484,22 +2480,36 @@ static int schannel_shutdown(struct Curl_cfilter *cf,
   struct ssl_connect_data *connssl = cf->ctx;
   struct schannel_ssl_backend_data *backend =
     (struct schannel_ssl_backend_data *)connssl->backend;
+  CURLcode result = CURLE_OK;
+
+  if(connssl->shutdown) {
+    *done = TRUE;
+    return CURLE_OK;
+  }
 
   DEBUGASSERT(data);
   DEBUGASSERT(backend);
 
+  /* Not supported in schannel */
+  (void)send_shutdown;
+
+  *done = FALSE;
   if(backend->ctxt) {
     infof(data, "schannel: shutting down SSL/TLS connection with %s port %d",
           connssl->peer.hostname, connssl->peer.port);
   }
 
-  if(backend->cred && backend->ctxt) {
+  if(!backend->ctxt || connssl->shutdown) {
+    *done = TRUE;
+    goto out;
+  }
+
+  if(backend->cred && backend->ctxt && !backend->sent_shutdown) {
     SecBufferDesc BuffDesc;
     SecBuffer Buffer;
     SECURITY_STATUS sspi_status;
     SecBuffer outbuf;
     SecBufferDesc outbuf_desc;
-    CURLcode result;
     DWORD dwshut = SCHANNEL_SHUTDOWN;
 
     InitSecBuffer(&Buffer, SECBUFFER_TOKEN, &dwshut, sizeof(dwshut));
@@ -2512,6 +2522,8 @@ static int schannel_shutdown(struct Curl_cfilter *cf,
       char buffer[STRERROR_LEN];
       failf(data, "schannel: ApplyControlToken failure: %s",
             Curl_sspi_strerror(sspi_status, buffer, sizeof(buffer)));
+      result = CURLE_SEND_ERROR;
+      goto out;
     }
 
     /* setup output buffer */
@@ -2538,11 +2550,80 @@ static int schannel_shutdown(struct Curl_cfilter *cf,
                                           outbuf.pvBuffer, outbuf.cbBuffer,
                                           &result);
       s_pSecFn->FreeContextBuffer(outbuf.pvBuffer);
-      if((result != CURLE_OK) || (outbuf.cbBuffer != (size_t) written)) {
-        infof(data, "schannel: failed to send close msg: %s"
-              " (bytes written: %zd)", curl_easy_strerror(result), written);
+      if(!result) {
+        if(written < (ssize_t)outbuf.cbBuffer) {
+          /* TODO: handle partial sends */
+          infof(data, "schannel: failed to send close msg: %s"
+                " (bytes written: %zd)", curl_easy_strerror(result), written);
+          result = CURLE_SEND_ERROR;
+          goto out;
+        }
+        backend->sent_shutdown = TRUE;
+        *done = TRUE;
+      }
+      else if(result == CURLE_AGAIN) {
+        connssl->io_need = CURL_SSL_IO_NEED_SEND;
+        result = CURLE_OK;
+        goto out;
+      }
+      else {
+        if(!backend->recv_connection_closed) {
+          infof(data, "schannel: error sending close msg: %d", result);
+          result = CURLE_SEND_ERROR;
+          goto out;
+        }
+        /* Looks like server already closed the connection.
+         * An error to send our close notify is not a failure. */
+        *done = TRUE;
+        result = CURLE_OK;
       }
     }
+  }
+
+  /* If the connection seems open and we have not seen the close notify
+   * from the server yet, try to receive it. */
+  if(backend->cred && backend->ctxt &&
+     !backend->recv_sspi_close_notify && !backend->recv_connection_closed) {
+    char buffer[1024];
+    ssize_t nread;
+
+    nread = schannel_recv(cf, data, buffer, sizeof(buffer), &result);
+    if(nread > 0) {
+      /* still data coming in? */
+    }
+    else if(nread == 0) {
+      /* We got the close notify alert and are done. */
+      backend->recv_connection_closed = TRUE;
+      *done = TRUE;
+    }
+    else if(nread < 0 && result == CURLE_AGAIN) {
+      connssl->io_need = CURL_SSL_IO_NEED_RECV;
+    }
+    else {
+      CURL_TRC_CF(data, cf, "SSL shutdown, error %d", result);
+      result = CURLE_RECV_ERROR;
+    }
+  }
+
+out:
+  connssl->shutdown = (result || *done);
+  return result;
+}
+
+static void schannel_close(struct Curl_cfilter *cf, struct Curl_easy *data)
+{
+  struct ssl_connect_data *connssl = cf->ctx;
+  struct schannel_ssl_backend_data *backend =
+    (struct schannel_ssl_backend_data *)connssl->backend;
+
+  DEBUGASSERT(data);
+  DEBUGASSERT(backend);
+
+  if(backend->cred && backend->ctxt &&
+     cf->connected && !connssl->shutdown &&
+     cf->next && cf->next->connected && !connssl->peer_closed) {
+    bool done;
+    (void)schannel_shutdown(cf, data, TRUE, &done);
   }
 
   /* free SSPI Schannel API security context handle */
@@ -2574,13 +2655,6 @@ static int schannel_shutdown(struct Curl_cfilter *cf,
     backend->decdata_length = 0;
     backend->decdata_offset = 0;
   }
-
-  return CURLE_OK;
-}
-
-static void schannel_close(struct Curl_cfilter *cf, struct Curl_easy *data)
-{
-  schannel_shutdown(cf, data);
 }
 
 static int schannel_init(void)

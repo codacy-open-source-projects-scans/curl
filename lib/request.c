@@ -54,6 +54,7 @@ CURLcode Curl_req_soft_reset(struct SingleRequest *req,
   req->upload_done = FALSE;
   req->download_done = FALSE;
   req->ignorebody = FALSE;
+  req->shutdown = FALSE;
   req->bytecount = 0;
   req->writebytecount = 0;
   req->header = TRUE; /* assume header */
@@ -108,7 +109,7 @@ void Curl_req_hard_reset(struct SingleRequest *req, struct Curl_easy *data)
 
   /* This is a bit ugly. `req->p` is a union and we assume we can
    * free this safely without leaks. */
-  Curl_safefree(req->p.http);
+  Curl_safefree(req->p.ftp);
   Curl_safefree(req->newurl);
   Curl_client_reset(data);
   if(req->sendbuf_init)
@@ -135,7 +136,6 @@ void Curl_req_hard_reset(struct SingleRequest *req, struct Curl_easy *data)
   req->keepon = 0;
   req->upgr101 = UPGR101_INIT;
   req->timeofdoc = 0;
-  req->bodywrites = 0;
   req->location = NULL;
   req->newurl = NULL;
 #ifndef CURL_DISABLE_COOKIES
@@ -156,13 +156,17 @@ void Curl_req_hard_reset(struct SingleRequest *req, struct Curl_easy *data)
   req->getheader = FALSE;
   req->no_body = data->set.opt_no_body;
   req->authneg = FALSE;
+  req->shutdown = FALSE;
+#ifdef USE_HYPER
+  req->bodywritten = FALSE;
+#endif
 }
 
 void Curl_req_free(struct SingleRequest *req, struct Curl_easy *data)
 {
   /* This is a bit ugly. `req->p` is a union and we assume we can
    * free this safely without leaks. */
-  Curl_safefree(req->p.http);
+  Curl_safefree(req->p.ftp);
   Curl_safefree(req->newurl);
   if(req->sendbuf_init)
     Curl_bufq_free(&req->sendbuf);
@@ -291,6 +295,14 @@ static CURLcode req_flush(struct Curl_easy *data)
 
   if(!data->req.upload_done && data->req.eos_read &&
      Curl_bufq_is_empty(&data->req.sendbuf)) {
+    if(data->req.shutdown) {
+      bool done;
+      result = Curl_xfer_send_shutdown(data, &done);
+      if(result)
+        return result;
+      if(!done)
+        return CURLE_AGAIN;
+    }
     return req_set_upload_done(data);
   }
   return CURLE_OK;

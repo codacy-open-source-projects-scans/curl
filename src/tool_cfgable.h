@@ -85,6 +85,8 @@ struct OperationConfig {
   char *range;
   long low_speed_limit;
   long low_speed_time;
+  long ip_tos;         /* IP Type of Service */
+  long vlan_priority;  /* VLAN priority */
   char *dns_servers;   /* dot notation: 1.1.1.1;2.2.2.2 */
   char *dns_interface; /* interface name */
   char *dns_ipv4_addr; /* dot notation */
@@ -247,7 +249,8 @@ struct OperationConfig {
   bool post302;
   bool post303;
   bool nokeepalive;         /* for keepalive needs */
-  long alivetime;
+  long alivetime;           /* keepalive-time */
+  long alivecnt;            /* keepalive-cnt */
   bool content_disposition; /* use Content-disposition filename */
 
   int default_node_flags;   /* default flags to search for each 'node', which
@@ -292,6 +295,7 @@ struct OperationConfig {
     CLOBBER_NEVER, /* If the file exists, always fail */
     CLOBBER_ALWAYS /* If the file exists, always overwrite it */
   } file_clobber_mode;
+  bool mptcp;                     /* enable MPTCP support */
   struct GlobalConfig *global;
   struct OperationConfig *prev;
   struct OperationConfig *next;   /* Always last in the struct */

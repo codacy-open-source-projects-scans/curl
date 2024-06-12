@@ -1544,7 +1544,7 @@ static CURLcode telnet_do(struct Curl_easy *data, bool *done)
 
   while(keepon) {
     DEBUGF(infof(data, "telnet_do, poll %d fds", poll_cnt));
-    switch(Curl_poll(pfd, poll_cnt, interval_ms)) {
+    switch(Curl_poll(pfd, (unsigned int)poll_cnt, interval_ms)) {
     case -1:                    /* error, stop reading */
       keepon = FALSE;
       continue;
@@ -1645,7 +1645,7 @@ static CURLcode telnet_do(struct Curl_easy *data, bool *done)
   }
 #endif
   /* mark this as "no further transfer wanted" */
-  Curl_xfer_setup(data, -1, -1, FALSE, -1);
+  Curl_xfer_setup_nop(data);
 
   return result;
 }

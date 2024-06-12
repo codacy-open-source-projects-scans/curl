@@ -310,13 +310,15 @@ static CURLcode rtsp_do(struct Curl_easy *data, bool *done)
   }
 
   if(rtspreq == RTSPREQ_RECEIVE) {
-    Curl_xfer_setup(data, FIRSTSOCKET, -1, TRUE, -1);
+    Curl_xfer_setup1(data, CURL_XFER_RECV, -1, TRUE);
     goto out;
   }
 
   p_session_id = data->set.str[STRING_RTSP_SESSION_ID];
   if(!p_session_id &&
-     (rtspreq & ~(RTSPREQ_OPTIONS | RTSPREQ_DESCRIBE | RTSPREQ_SETUP))) {
+     (rtspreq & ~(Curl_RtspReq)(RTSPREQ_OPTIONS |
+                                RTSPREQ_DESCRIBE |
+                                RTSPREQ_SETUP))) {
     failf(data, "Refusing to issue an RTSP request [%s] without a session ID.",
           p_request);
     result = CURLE_BAD_FUNCTION_ARGUMENT;
@@ -576,7 +578,7 @@ static CURLcode rtsp_do(struct Curl_easy *data, bool *done)
   if(result)
     goto out;
 
-  Curl_xfer_setup(data, FIRSTSOCKET, -1, TRUE, FIRSTSOCKET);
+  Curl_xfer_setup1(data, CURL_XFER_SENDRECV, -1, TRUE);
 
   /* issue the request */
   result = Curl_req_send(data, &req_buffer);
