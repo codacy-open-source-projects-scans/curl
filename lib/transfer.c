@@ -338,8 +338,9 @@ static CURLcode readwrite_data(struct Curl_easy *data,
 
   } while(maxloops-- && data_pending(data));
 
-  if(maxloops <= 0) {
-    /* did not read until EAGAIN, mark read-again-please */
+  if((maxloops <= 0) || data_pending(data)) {
+    /* did not read until EAGAIN or there is still pending data, mark as
+       read-again-please */
     data->state.select_bits = CURL_CSELECT_IN;
     if((k->keepon & KEEP_SENDBITS) == KEEP_SEND)
       data->state.select_bits |= CURL_CSELECT_OUT;
@@ -1322,4 +1323,16 @@ CURLcode Curl_xfer_send_shutdown(struct Curl_easy *data, bool *done)
     return CURLE_FAILED_INIT;
   sockindex = (data->conn->writesockfd == data->conn->sock[SECONDARYSOCKET]);
   return Curl_conn_shutdown(data, sockindex, done);
+}
+
+bool Curl_xfer_is_blocked(struct Curl_easy *data)
+{
+  bool want_send = ((data)->req.keepon & KEEP_SEND);
+  bool want_recv = ((data)->req.keepon & KEEP_RECV);
+  if(!want_send)
+    return (want_recv && Curl_cwriter_is_paused(data));
+  else if(!want_recv)
+    return (want_send && Curl_creader_is_paused(data));
+  else
+    return Curl_creader_is_paused(data) && Curl_cwriter_is_paused(data);
 }
