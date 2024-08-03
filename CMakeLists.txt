@@ -419,6 +419,7 @@ count_true(enabled_ssl_options_count
   CURL_USE_MBEDTLS
   CURL_USE_BEARSSL
   CURL_USE_WOLFSSL
+  CURL_USE_GNUTLS
 )
 if(enabled_ssl_options_count GREATER "1")
   set(CURL_WITH_MULTI_SSL ON)
@@ -541,11 +542,12 @@ endif()
 
 if(CURL_USE_GNUTLS)
   find_package(GnuTLS REQUIRED)
+  find_package(nettle REQUIRED)
   set(SSL_ENABLED ON)
   set(USE_GNUTLS ON)
-  list(APPEND CURL_LIBS ${GNUTLS_LIBRARIES} "nettle")
-  list(APPEND LIBCURL_PC_REQUIRES_PRIVATE "gnutls")
-  include_directories(${GNUTLS_INCLUDE_DIRS})
+  list(APPEND CURL_LIBS ${GNUTLS_LIBRARIES} ${NETTLE_LIBRARIES})
+  list(APPEND LIBCURL_PC_REQUIRES_PRIVATE "gnutls" "nettle")
+  include_directories(${GNUTLS_INCLUDE_DIRS} ${NETTLE_INCLUDE_DIRS})
 
   if(CURL_DEFAULT_SSL_BACKEND AND CURL_DEFAULT_SSL_BACKEND STREQUAL "gnutls")
     set(valid_default_ssl_backend TRUE)
@@ -993,11 +995,21 @@ endif()
 option(CURL_USE_LIBSSH "Use libssh" OFF)
 mark_as_advanced(CURL_USE_LIBSSH)
 if(NOT USE_LIBSSH2 AND CURL_USE_LIBSSH)
-  find_package(libssh CONFIG)
+  find_package(libssh CONFIG QUIET)
   if(libssh_FOUND)
     message(STATUS "Found libssh ${libssh_VERSION}")
-    # Use imported target for include and library paths.
-    list(APPEND CURL_LIBS ssh)
+  else()
+    find_package(PkgConfig QUIET)
+    pkg_check_modules(LIBSSH "libssh")
+    if(LIBSSH_FOUND)
+      include_directories(${LIBSSH_INCLUDE_DIRS})
+    endif()
+  endif()
+  if(libssh_FOUND OR LIBSSH_FOUND)
+    if(NOT DEFINED LIBSSH_LINK_LIBRARIES)
+      set(LIBSSH_LINK_LIBRARIES "ssh")  # for find_package() with broken pkg-config (e.g. linux-old CI workflow)
+    endif()
+    list(APPEND CURL_LIBS ${LIBSSH_LINK_LIBRARIES})
     list(APPEND LIBCURL_PC_REQUIRES_PRIVATE "libssh")
     set(USE_LIBSSH ON)
   endif()
@@ -1598,7 +1610,15 @@ endif()
 # Ugly (but functional) way to include "Makefile.inc" by transforming it
 # (= regenerate it).
 function(transform_makefile_inc INPUT_FILE OUTPUT_FILE)
-  file(READ ${INPUT_FILE} MAKEFILE_INC_TEXT)
+  file(STRINGS "${INPUT_FILE}" _makefile_inc_lines)
+  set(MAKEFILE_INC_TEXT "")
+  foreach(_line IN LISTS _makefile_inc_lines)
+    if(_line MATCHES "### USE SIMPLE LIST ASSIGMENTS ABOVE THIS LINE ###")
+      break()
+    endif()
+    set(MAKEFILE_INC_TEXT "${MAKEFILE_INC_TEXT}${_line}\n")
+  endforeach()
+
   string(REPLACE "$(top_srcdir)"   "\${CURL_SOURCE_DIR}" MAKEFILE_INC_TEXT ${MAKEFILE_INC_TEXT})
   string(REPLACE "$(top_builddir)" "\${CURL_BINARY_DIR}" MAKEFILE_INC_TEXT ${MAKEFILE_INC_TEXT})
 
@@ -1641,6 +1661,23 @@ endif()
 
 if(BUILD_TESTING)
   add_subdirectory(tests)
+endif()
+
+# Verify if all CMake include/input files are listed as distributable
+if(ENABLE_DIST_TEST)
+  # Get 'CMAKE_DIST' variable
+  transform_makefile_inc("Makefile.am" "${CMAKE_CURRENT_BINARY_DIR}/Makefile.am.cmake")
+  include(${CMAKE_CURRENT_BINARY_DIR}/Makefile.am.cmake)
+
+  file(GLOB_RECURSE curl_cmake_files_found RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CMake/*.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/CMake/*.in")
+
+  foreach(_item IN LISTS curl_cmake_files_found)
+    if(NOT _item IN_LIST CMAKE_DIST)
+      message(FATAL_ERROR "Source file missing from the Makefile.am CMAKE_DIST list: ${_item}")
+    endif()
+  endforeach()
 endif()
 
 if(NOT CURL_DISABLE_INSTALL)
@@ -1866,6 +1903,7 @@ if(NOT CURL_DISABLE_INSTALL)
   if(LIBCURL_PC_REQUIRES_PRIVATE)
     string(REPLACE ";" "," LIBCURL_PC_REQUIRES_PRIVATE "${LIBCURL_PC_REQUIRES_PRIVATE}")
   endif()
+  set(LIBCURL_PC_CFLAGS_PRIVATE "-DCURL_STATICLIB")
 
   # Merge pkg-config private fields into public ones when static-only
   if(BUILD_SHARED_LIBS)
@@ -1877,7 +1915,7 @@ if(NOT CURL_DISABLE_INSTALL)
     set(ENABLE_SHARED         "no")
     set(LIBCURL_PC_REQUIRES   "${LIBCURL_PC_REQUIRES_PRIVATE}")
     set(LIBCURL_NO_SHARED     "${LIBCURL_LIBS}")
-    set(CPPFLAG_CURL_STATICLIB "-DCURL_STATICLIB")
+    set(CPPFLAG_CURL_STATICLIB "${LIBCURL_PC_CFLAGS_PRIVATE}")
   endif()
   if(BUILD_STATIC_LIBS)
     set(ENABLE_STATIC         "yes")

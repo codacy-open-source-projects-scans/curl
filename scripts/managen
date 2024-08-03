@@ -1196,17 +1196,29 @@ elsif($cmd eq "-I") {
     $cmd = shift @ARGV;
     goto check;
 }
+elsif($cmd eq "-c") {
+    # Column width
+    $colwidth = 0 + shift @ARGV;
+    $cmd = shift @ARGV;
+    goto check;
+}
 
 my @files = @ARGV; # the rest are the files
 
-open(INC, "<$include/curl/curlver.h");
-while(<INC>) {
-    if($_ =~ /^#define LIBCURL_VERSION \"([0-9.]*)/) {
-        $version = $1;
-        last;
-    }
+# can be overriden for releases
+if($ENV{'CURL_MAKETGZ_VERSION'}) {
+    $version = $ENV{'CURL_MAKETGZ_VERSION'};
 }
-close(INC);
+else {
+    open(INC, "<$include/curl/curlver.h");
+    while(<INC>) {
+        if($_ =~ /^#define LIBCURL_VERSION \"([0-9.]*)/) {
+            $version = $1;
+            last;
+        }
+    }
+    close(INC);
+}
 
 # learn all existing options
 indexoptions($dir, @files);
