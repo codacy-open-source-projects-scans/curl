@@ -176,11 +176,11 @@ class TestSSLUse:
     # test setting cipher suites, the AES 256 ciphers are disabled in the test server
     @pytest.mark.parametrize("ciphers, succeed", [
         [[0x1301], True],
-        [[0x1302], True],
+        [[0x1302], False],
         [[0x1303], True],
         [[0x1302, 0x1303], True],
         [[0xC02B, 0xC02F], True],
-        [[0xC02C, 0xC030], True],
+        [[0xC02C, 0xC030], False],
         [[0xCCA9, 0xCCA8], True],
         [[0xC02C, 0xC030, 0xCCA9, 0xCCA8], True],
     ])
@@ -213,12 +213,8 @@ class TestSSLUse:
                 pytest.skip('SecureTransport does not support TLSv1.3')
             elif env.curl_uses_lib('boringssl'):
                 pytest.skip('BoringSSL does not support setting TLSv1.3 ciphers')
-            elif env.curl_uses_lib('mbedtls'):
-                if not env.curl_lib_version_at_least('mbedtls', '3.6.0'):
-                    pytest.skip('mbedTLS TLSv1.3 support requires at least 3.6.0')
-                extra_args = ['--ciphers', ':'.join(cipher_names)]
-            elif env.curl_uses_lib('wolfssl'):
-                extra_args = ['--ciphers', ':'.join(cipher_names)]
+            elif env.curl_uses_lib('mbedtls') and not env.curl_lib_version_at_least('mbedtls', '3.6.0'):
+                pytest.skip('mbedTLS TLSv1.3 support requires at least 3.6.0')
             else:
                 extra_args = ['--tls13-ciphers', ':'.join(cipher_names)]
         else:

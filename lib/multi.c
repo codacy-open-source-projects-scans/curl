@@ -742,10 +742,8 @@ static CURLcode multi_done(struct Curl_easy *data,
 
   data->state.done = TRUE; /* called just now! */
 
-  if(conn->dns_entry) {
-    Curl_resolv_unlock(data, conn->dns_entry); /* done with this */
-    conn->dns_entry = NULL;
-  }
+  if(conn->dns_entry)
+    Curl_resolv_unlink(data, &conn->dns_entry); /* done with this */
   Curl_hostcache_prune(data);
 
   /* if data->set.reuse_forbid is TRUE, it means the libcurl client has
@@ -1103,7 +1101,7 @@ static int perform_getsock(struct Curl_easy *data, curl_socket_t *sock)
       sock[sockindex] = conn->sockfd;
     }
 
-    if(CURL_WANT_SEND(data)) {
+    if(Curl_req_want_send(data)) {
       if((conn->sockfd != conn->writesockfd) ||
          bitmap == GETSOCK_BLANK) {
         /* only if they are not the same socket and we have a readable
@@ -1418,7 +1416,7 @@ static CURLMcode multi_wait(struct Curl_multi *multi,
 #endif
     int pollrc;
 #ifdef USE_WINSOCK
-    if(cpfds.n)         /* just pre-check with WinSock */
+    if(cpfds.n)         /* just pre-check with Winsock */
       pollrc = Curl_poll(cpfds.pfds, cpfds.n, 0);
     else
       pollrc = 0;
@@ -1438,7 +1436,7 @@ static CURLMcode multi_wait(struct Curl_multi *multi,
       WSAWaitForMultipleEvents(1, &multi->wsa_event, FALSE, (DWORD)timeout_ms,
                                FALSE);
     }
-    /* With WinSock, we have to run the following section unconditionally
+    /* With Winsock, we have to run the following section unconditionally
        to call WSAEventSelect(fd, event, 0) on all the sockets */
     {
 #endif
