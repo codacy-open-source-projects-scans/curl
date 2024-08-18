@@ -494,11 +494,11 @@ AM_CONDITIONAL([USE_CPPFLAG_CURL_STATICLIB],
 LIBCURL_PC_CFLAGS_PRIVATE='-DCURL_STATICLIB'
 AC_SUBST(LIBCURL_PC_CFLAGS_PRIVATE)
 
-CPPFLAG_CURL_STATICLIB=
+LIBCURL_PC_CFLAGS=
 if test "x$xc_lt_build_static_only" = 'xyes'; then
-  CPPFLAG_CURL_STATICLIB="${LIBCURL_PC_CFLAGS_PRIVATE}"
+  LIBCURL_PC_CFLAGS="${LIBCURL_PC_CFLAGS_PRIVATE}"
 fi
-AC_SUBST([CPPFLAG_CURL_STATICLIB])
+AC_SUBST([LIBCURL_PC_CFLAGS])
 
 
 # Determine whether all dependent libraries must be specified when linking
@@ -2181,6 +2181,7 @@ if test $with_libgsasl != "no"; then
   AC_SEARCH_LIBS(gsasl_init, gsasl,
     [curl_gsasl_msg="enabled";
      AC_DEFINE([USE_GSASL], [1], [GSASL support enabled])
+     LIBCURL_PC_REQUIRES_PRIVATE="$LIBCURL_PC_REQUIRES_PRIVATE libgsasl"
      ],
     [curl_gsasl_msg="no      (libgsasl not found)";
      AC_MSG_WARN([libgsasl was not found])
@@ -2522,6 +2523,32 @@ AC_SUBST([CURL_LT_SHLIB_VERSIONED_FLAVOUR],
   ["$versioned_symbols_flavour"])
 AM_CONDITIONAL([CURL_LT_SHLIB_USE_VERSIONED_SYMBOLS],
   [test "x$versioned_symbols" = 'xyes'])
+
+dnl ----------------------------
+dnl check Windows Unicode option
+dnl ----------------------------
+
+want_winuni="no"
+if test "$curl_cv_native_windows" = "yes"; then
+  AC_MSG_CHECKING([whether to enable Windows Unicode (Windows native builds only)])
+  OPT_WINUNI="default"
+  AC_ARG_WITH(windows-unicode,
+  AS_HELP_STRING([--with-windows-unicode],[enable Windows Unicode])
+  AS_HELP_STRING([--without-windows-unicode], [disable Windows Unicode (default)]),
+    OPT_WINUNI=$withval)
+  case "$OPT_WINUNI" in
+    yes)
+      CPPFLAGS="${CPPFLAGS} -DUNICODE -D_UNICODE"
+      want_winuni="yes"
+      AC_MSG_RESULT([yes])
+      ;;
+    *)
+      AC_MSG_RESULT([no])
+      ;;
+  esac
+fi
+
+AM_CONDITIONAL([USE_UNICODE], [test "$want_winuni" = "yes"])
 
 dnl -------------------------------------------------
 dnl check winidn option before other IDN libraries
@@ -3236,7 +3263,7 @@ if test "x$want_openssl_quic" = "xyes"; then
   if test "$NGTCP2_ENABLED" = 1; then
     AC_MSG_ERROR([--with-openssl-quic and --with-ngtcp2 are mutually exclusive])
   fi
-  if test "$HAVE_OPENSSL_QUIC" != 1; then
+  if test "$have_openssl_quic" != 1; then
     AC_MSG_ERROR([--with-openssl-quic requires quic support and OpenSSL >= 3.3.0])
   fi
   AC_DEFINE(USE_OPENSSL_QUIC, 1, [if openssl QUIC is in use])
@@ -4786,9 +4813,9 @@ CURL_CONFIGURE_SYMBOL_HIDING
 dnl
 dnl All the library dependencies put into $LIB apply to libcurl only.
 dnl
-LIBCURL_LIBS="$LIBS$PTHREAD"
+LIBCURL_PC_LIBS_PRIVATE="$LIBS$PTHREAD"
 
-AC_SUBST(LIBCURL_LIBS)
+AC_SUBST(LIBCURL_PC_LIBS_PRIVATE)
 AC_SUBST(CURL_NETWORK_LIBS)
 AC_SUBST(CURL_NETWORK_AND_TIME_LIBS)
 
@@ -4817,13 +4844,13 @@ AC_SUBST(LIBCURL_PC_REQUIRES_PRIVATE)
 dnl Merge pkg-config private fields into public ones when static-only
 if test "x$enable_shared" = "xno"; then
   LIBCURL_PC_REQUIRES=$LIBCURL_PC_REQUIRES_PRIVATE
-  LIBCURL_NO_SHARED=$LIBCURL_LIBS
+  LIBCURL_PC_LIBS=$LIBCURL_PC_LIBS_PRIVATE
 else
   LIBCURL_PC_REQUIRES=
-  LIBCURL_NO_SHARED=
+  LIBCURL_PC_LIBS=
 fi
 AC_SUBST(LIBCURL_PC_REQUIRES)
-AC_SUBST(LIBCURL_NO_SHARED)
+AC_SUBST(LIBCURL_PC_LIBS)
 
 rm $compilersh
 
@@ -4989,6 +5016,9 @@ else
   ])
 fi
 
+if test "x$want_winuni" = "xyes"; then
+  SUPPORT_FEATURES="$SUPPORT_FEATURES Unicode"
+fi
 if test "x$want_debug" = "xyes"; then
   SUPPORT_FEATURES="$SUPPORT_FEATURES Debug"
 fi
@@ -5110,7 +5140,7 @@ squeeze DEFS
 squeeze LDFLAGS
 squeeze LIBS
 
-squeeze LIBCURL_LIBS
+squeeze LIBCURL_PC_LIBS_PRIVATE
 squeeze CURL_NETWORK_LIBS
 squeeze CURL_NETWORK_AND_TIME_LIBS
 

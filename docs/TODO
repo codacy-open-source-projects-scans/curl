@@ -63,7 +63,6 @@
 
  4. FTP
  4.1 HOST
- 4.2 Alter passive/active on failure and retry
  4.4 Support CURLOPT_PREQUOTE for directories listings
  4.5 ASCII support
  4.6 GSSAPI via Windows SSPI
@@ -178,7 +177,6 @@
  19.3 Do not use GNU libtool on OpenBSD
  19.4 Package curl for Windows in a signed installer
  19.5 make configure use --cache-file more and better
- 19.6 build curl with Windows Unicode support
 
  20. Test suite
  20.1 SSL tunnel
@@ -191,9 +189,13 @@
  21. MQTT
  21.1 Support rate-limiting
  21.2 Support MQTTS
+ 21.3 Handle network blocks
 
  22. TFTP
  22.1 TFTP does not convert LF to CRLF for mode=netascii
+
+ 23. Gopher
+ 23.1 Handle network blocks
 
 ==============================================================================
 
@@ -250,7 +252,7 @@
 1.6 thread-safe sharing
 
  Using the share interface users can share some data between easy handles but
- several of the sharing options are documented as as not safe and supported to
+ several of the sharing options are documented as not safe and supported to
  share between multiple concurrent threads. Fixing this would enable more
  users to share data in more powerful ways.
 
@@ -345,7 +347,7 @@
 
 1.17 Add support for IRIs
 
- IRIs (RFC 3987) allow localized, non-ascii, names in the URL. To properly
+ IRIs (RFC 3987) allow localized, non-ASCII, names in the URL. To properly
  support this, curl/libcurl would need to translate/encode the given input
  from the input string encoding into percent encoded output "over the wire".
 
@@ -481,6 +483,8 @@
 
  - curl_multi_remove_handle for any of the above. See section 2.3.
 
+ - Calling curl_ws_send() from a callback
+
 2.2 Better support for same name resolves
 
  If a name resolve has been initiated for name NN and a second easy handle
@@ -556,13 +560,6 @@
  servers named-based virtual hosting:
 
  https://datatracker.ietf.org/doc/html/rfc7151
-
-4.2 Alter passive/active on failure and retry
-
- When trying to connect passively to a server which only supports active
- connections, libcurl returns CURLE_FTP_WEIRD_PASV_REPLY and closes the
- connection. There could be a way to fallback to an active connection (and
- vice versa). https://curl.se/bug/feature.cgi?id=1754793
 
 4.4 Support CURLOPT_PREQUOTE for directions listings
 
@@ -825,8 +822,6 @@
  By changing the order of TLS extensions provided in the TLS handshake, it is
  sometimes possible to circumvent TLS fingerprinting by servers. The TLS
  extension order is of course not the only way to fingerprint a client.
-
- See https://github.com/curl/curl/issues/8119
 
 13.5 Export session ids
 
@@ -1239,7 +1234,7 @@
 
  -J/--remote-header-name does not decode %-encoded filenames. RFC 6266 details
  how it should be done. The can of worm is basically that we have no charset
- handling in curl and ascii >=128 is a challenge for us. Not to mention that
+ handling in curl and ASCII >=128 is a challenge for us. Not to mention that
  decoding also means that we need to check for nastiness that is attempted,
  like "../" sequences and the like. Probably everything to the left of any
  embedded slashes should be cut off.
@@ -1307,13 +1302,6 @@
 
  See https://github.com/curl/curl/issues/7753
 
-19.6 build curl with Windows Unicode support
-
- The user wants an easier way to tell autotools to build curl with Windows
- Unicode support, like ./configure --enable-windows-unicode
-
- See https://github.com/curl/curl/issues/7229
-
 20. Test suite
 
 20.1 SSL tunnel
@@ -1364,6 +1352,12 @@
 
 21.2 Support MQTTS
 
+21.3 Handle network blocks
+
+  Running test suite with
+  `CURL_DBG_SOCK_WBLOCK=90 ./runtests.pl -a mqtt` makes several
+  MQTT test cases fail where they should not.
+
 22. TFTP
 
 22.1 TFTP does not convert LF to CRLF for mode=netascii
@@ -1374,3 +1368,11 @@
  for them.
 
  See https://github.com/curl/curl/issues/12655
+
+23. Gopher
+
+23.1 Handle network blocks
+
+  Running test suite with
+  `CURL_DBG_SOCK_WBLOCK=90 ./runtests.pl -a 1200 to 1300` makes several
+  Gopher test cases fail where they should not.

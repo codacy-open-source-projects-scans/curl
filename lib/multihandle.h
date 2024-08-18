@@ -33,7 +33,7 @@
 struct connectdata;
 
 struct Curl_message {
-  struct Curl_llist_element list;
+  struct Curl_llist_node list;
   /* the 'CURLMsg' is the part that is visible to the external user */
   struct CURLMsg extmsg;
 };
@@ -86,20 +86,17 @@ struct Curl_multi {
      this multi handle with an easy handle. Set this to CURL_MULTI_HANDLE. */
   unsigned int magic;
 
-  /* We have a doubly-linked list with easy handles */
-  struct Curl_easy *easyp;
-  struct Curl_easy *easylp; /* last node */
-
   unsigned int num_easy; /* amount of entries in the linked list above. */
   unsigned int num_alive; /* amount of easy handles that are added but have
                              not yet reached COMPLETE state */
 
   struct Curl_llist msglist; /* a list of messages from completed transfers */
 
-  struct Curl_llist pending; /* Curl_easys that are in the
-                                MSTATE_PENDING state */
-  struct Curl_llist msgsent; /* Curl_easys that are in the
-                                MSTATE_MSGSENT state */
+  /* Each added easy handle is added to ONE of these three lists */
+  struct Curl_llist process; /* not in PENDING or MSGSENT */
+  struct Curl_llist pending; /* in PENDING */
+  struct Curl_llist msgsent; /* in MSGSENT */
+  curl_off_t next_easy_mid; /* next multi-id for easy handle added */
 
   /* callback function and user data pointer for the *socket() API */
   curl_socket_callback socket_cb;
@@ -154,8 +151,9 @@ struct Curl_multi {
   /* timer callback and user data pointer for the *socket() API */
   curl_multi_timer_callback timer_cb;
   void *timer_userp;
-  struct curltime timer_lastcall; /* the fixed time for the timeout for the
-                                     previous callback */
+  long last_timeout_ms;        /* the last timeout value set via timer_cb */
+  struct curltime last_expire_ts; /* timestamp of last expiry */
+
 #ifdef USE_WINSOCK
   WSAEVENT wsa_event; /* Winsock event used for waits */
 #else

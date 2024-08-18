@@ -50,6 +50,11 @@ AM_CPPFLAGS += -DCURL_STATICLIB
 endif
 AM_CPPFLAGS += -DBUILDING_CURL
 
+AM_LDFLAGS =
+if USE_UNICODE
+AM_LDFLAGS += -municode
+endif
+
 include Makefile.inc
 
 # CURL_FILES comes from Makefile.inc
@@ -68,7 +73,7 @@ CFLAGS += @CURL_CFLAG_EXTRAS@
 LIBS = $(BLANK_AT_MAKETIME)
 
 if USE_EXPLICIT_LIB_DEPS
-curl_LDADD = $(top_builddir)/lib/libcurl.la @LIBCURL_LIBS@
+curl_LDADD = $(top_builddir)/lib/libcurl.la @LIBCURL_PC_LIBS_PRIVATE@
 else
 curl_LDADD = $(top_builddir)/lib/libcurl.la @SSL_LIBS@ @ZLIB_LIBS@ @CURL_NETWORK_AND_TIME_LIBS@
 endif

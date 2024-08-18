@@ -27,12 +27,12 @@
 #
 # NGHTTP3_FOUND         System has nghttp3
 # NGHTTP3_INCLUDE_DIRS  The nghttp3 include directories
-# NGHTTP3_LIBRARIES     The libraries needed to use nghttp3
+# NGHTTP3_LIBRARIES     The nghttp3 library names
 # NGHTTP3_VERSION       Version of nghttp3
 
-if(UNIX)
+if(CURL_USE_PKGCONFIG)
   find_package(PkgConfig QUIET)
-  pkg_search_module(PC_NGHTTP3 "libnghttp3")
+  pkg_check_modules(PC_NGHTTP3 "libnghttp3")
 endif()
 
 find_path(NGHTTP3_INCLUDE_DIR "nghttp3/nghttp3.h"
@@ -49,6 +49,13 @@ find_library(NGHTTP3_LIBRARY NAMES "nghttp3"
 
 if(PC_NGHTTP3_VERSION)
   set(NGHTTP3_VERSION ${PC_NGHTTP3_VERSION})
+elseif(NGHTTP3_INCLUDE_DIR AND EXISTS "${NGHTTP3_INCLUDE_DIR}/nghttp3/version.h")
+  set(_version_regex "#[\t ]*define[\t ]+NGHTTP3_VERSION[\t ]+\"([^\"]*)\"")
+  file(STRINGS "${NGHTTP3_INCLUDE_DIR}/nghttp3/version.h" _version_str REGEX "${_version_regex}")
+  string(REGEX REPLACE "${_version_regex}" "\\1" _version_str "${_version_str}")
+  set(NGHTTP3_VERSION "${_version_str}")
+  unset(_version_regex)
+  unset(_version_str)
 endif()
 
 include(FindPackageHandleStandardArgs)
@@ -65,4 +72,4 @@ if(NGHTTP3_FOUND)
   set(NGHTTP3_LIBRARIES    ${NGHTTP3_LIBRARY})
 endif()
 
-mark_as_advanced(NGHTTP3_INCLUDE_DIRS NGHTTP3_LIBRARIES)
+mark_as_advanced(NGHTTP3_INCLUDE_DIR NGHTTP3_LIBRARY)

@@ -25,18 +25,37 @@
 #
 # Result Variables:
 #
-# LIBPSL_FOUND        System has libpsl
-# LIBPSL_INCLUDE_DIR  The libpsl include directory
-# LIBPSL_LIBRARY      The libpsl library name
-# LIBPSL_VERSION      Version of libpsl
+# LIBPSL_FOUND         System has libpsl
+# LIBPSL_INCLUDE_DIRS  The libpsl include directories
+# LIBPSL_LIBRARIES     The libpsl library names
+# LIBPSL_VERSION       Version of libpsl
 
-find_path(LIBPSL_INCLUDE_DIR "libpsl.h")
+if(CURL_USE_PKGCONFIG)
+  find_package(PkgConfig QUIET)
+  pkg_check_modules(PC_LIBPSL "libpsl")
+endif()
 
-find_library(LIBPSL_LIBRARY NAMES "psl" "libpsl")
+find_path(LIBPSL_INCLUDE_DIR "libpsl.h"
+  HINTS
+    ${PC_LIBPSL_INCLUDEDIR}
+    ${PC_LIBPSL_INCLUDE_DIRS}
+)
 
-if(LIBPSL_INCLUDE_DIR)
-  file(STRINGS "${LIBPSL_INCLUDE_DIR}/libpsl.h" _libpsl_version_str REGEX "^#define[\t ]+PSL_VERSION[\t ]+\"(.*)\"")
-  string(REGEX REPLACE "^.*\"([^\"]+)\"" "\\1"  LIBPSL_VERSION "${_libpsl_version_str}")
+find_library(LIBPSL_LIBRARY NAMES "psl" "libpsl"
+  HINTS
+    ${PC_LIBPSL_LIBDIR}
+    ${PC_LIBPSL_LIBRARY_DIRS}
+)
+
+if(PC_LIBPSL_VERSION)
+  set(LIBPSL_VERSION ${PC_LIBPSL_VERSION})
+elseif(LIBPSL_INCLUDE_DIR AND EXISTS "${LIBPSL_INCLUDE_DIR}/libpsl.h")
+  set(_version_regex "#[\t ]*define[\t ]+PSL_VERSION[\t ]+\"([^\"]*)\"")
+  file(STRINGS "${LIBPSL_INCLUDE_DIR}/libpsl.h" _version_str REGEX "${_version_regex}")
+  string(REGEX REPLACE "${_version_regex}" "\\1" _version_str "${_version_str}")
+  set(LIBPSL_VERSION "${_version_str}")
+  unset(_version_regex)
+  unset(_version_str)
 endif()
 
 include(FindPackageHandleStandardArgs)
@@ -47,5 +66,10 @@ find_package_handle_standard_args(LibPSL
   VERSION_VAR
     LIBPSL_VERSION
 )
+
+if(LIBPSL_FOUND)
+  set(LIBPSL_INCLUDE_DIRS ${LIBPSL_INCLUDE_DIR})
+  set(LIBPSL_LIBRARIES    ${LIBPSL_LIBRARY})
+endif()
 
 mark_as_advanced(LIBPSL_INCLUDE_DIR LIBPSL_LIBRARY)

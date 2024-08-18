@@ -1,4 +1,3 @@
-#!/usr/bin/env perl
 #***************************************************************************
 #                                  _   _ ____  _
 #  Project                     ___| | | |  _ \| |
@@ -22,19 +21,48 @@
 # SPDX-License-Identifier: curl
 #
 ###########################################################################
+# Find the rustls library
+#
+# Result Variables:
+#
+# RUSTLS_FOUND         System has rustls
+# RUSTLS_INCLUDE_DIRS  The rustls include directories
+# RUSTLS_LIBRARIES     The rustls library names
+# RUSTLS_VERSION       Version of rustls
 
-# The provided value is the max allowed length.
-my $max = $ARGV[0];
-my $line = 0;
-my $error;
-while(<STDIN>) {
-    my $i = length($_);
-    $line++;
-    if($i > $max) {
-        print STDERR "<STDIN>:$line ERROR line too long, $i > $max\n";
-        print STDERR "<STDIN>:$line $_";
-        $error++;
-    }
-    print $_;
-}
-exit $error;
+if(CURL_USE_PKGCONFIG)
+  find_package(PkgConfig QUIET)
+  pkg_check_modules(PC_RUSTLS "rustls")
+endif()
+
+find_path(RUSTLS_INCLUDE_DIR "rustls.h"
+  HINTS
+    ${PC_RUSTLS_INCLUDEDIR}
+    ${PC_RUSTLS_INCLUDE_DIRS}
+)
+
+find_library(RUSTLS_LIBRARY "rustls"
+  HINTS
+    ${PC_RUSTLS_LIBDIR}
+    ${PC_RUSTLS_LIBRARY_DIRS}
+)
+
+if(PC_RUSTLS_VERSION)
+  set(RUSTLS_VERSION ${PC_RUSTLS_VERSION})
+endif()
+
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(rustls
+  REQUIRED_VARS
+    RUSTLS_INCLUDE_DIR
+    RUSTLS_LIBRARY
+  VERSION_VAR
+    RUSTLS_VERSION
+)
+
+if(RUSTLS_FOUND)
+  set(RUSTLS_INCLUDE_DIRS ${RUSTLS_INCLUDE_DIR})
+  set(RUSTLS_LIBRARIES    ${RUSTLS_LIBRARY})
+endif()
+
+mark_as_advanced(RUSTLS_INCLUDE_DIR RUSTLS_LIBRARY)

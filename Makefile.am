@@ -45,8 +45,10 @@ CMAKE_DIST =                                    \
  CMake/FindNGTCP2.cmake                         \
  CMake/FindNettle.cmake                         \
  CMake/FindQUICHE.cmake                         \
+ CMake/FindWolfSSH.cmake                        \
  CMake/FindWolfSSL.cmake                        \
  CMake/FindZstd.cmake                           \
+ CMake/Findrustls.cmake                         \
  CMake/Macros.cmake                             \
  CMake/OtherTests.cmake                         \
  CMake/PickyWarnings.cmake                      \
@@ -91,8 +93,6 @@ DIST_SUBDIRS = $(SUBDIRS) tests packages include docs
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libcurl.pc
-
-### USE SIMPLE LIST ASSIGMENTS ABOVE THIS LINE ### DO NOT DELETE
 
 # List of files required to generate VC IDE .dsp, .vcproj and .vcxproj files
 include lib/Makefile.inc
