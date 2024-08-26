@@ -21,48 +21,53 @@
 # SPDX-License-Identifier: curl
 #
 ###########################################################################
-# Find the quiche library
+# Find the rustls library
 #
-# Result Variables:
+# Input variables:
 #
-# QUICHE_FOUND         System has quiche
-# QUICHE_INCLUDE_DIRS  The quiche include directories
-# QUICHE_LIBRARIES     The quiche library names
-# QUICHE_VERSION       Version of quiche
+# RUSTLS_INCLUDE_DIR   The rustls include directory
+# RUSTLS_LIBRARY       Path to rustls library
+#
+# Result variables:
+#
+# RUSTLS_FOUND         System has rustls
+# RUSTLS_INCLUDE_DIRS  The rustls include directories
+# RUSTLS_LIBRARIES     The rustls library names
+# RUSTLS_VERSION       Version of rustls
 
 if(CURL_USE_PKGCONFIG)
   find_package(PkgConfig QUIET)
-  pkg_check_modules(PC_QUICHE "quiche")
+  pkg_check_modules(PC_RUSTLS "rustls")
 endif()
 
-find_path(QUICHE_INCLUDE_DIR "quiche.h"
+find_path(RUSTLS_INCLUDE_DIR NAMES "rustls.h"
   HINTS
-    ${PC_QUICHE_INCLUDEDIR}
-    ${PC_QUICHE_INCLUDE_DIRS}
+    ${PC_RUSTLS_INCLUDEDIR}
+    ${PC_RUSTLS_INCLUDE_DIRS}
 )
 
-find_library(QUICHE_LIBRARY NAMES "quiche"
+find_library(RUSTLS_LIBRARY NAMES "rustls"
   HINTS
-    ${PC_QUICHE_LIBDIR}
-    ${PC_QUICHE_LIBRARY_DIRS}
+    ${PC_RUSTLS_LIBDIR}
+    ${PC_RUSTLS_LIBRARY_DIRS}
 )
 
-if(PC_QUICHE_VERSION)
-  set(QUICHE_VERSION ${PC_QUICHE_VERSION})
+if(PC_RUSTLS_VERSION)
+  set(RUSTLS_VERSION ${PC_RUSTLS_VERSION})
 endif()
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(QUICHE
+find_package_handle_standard_args(Rustls
   REQUIRED_VARS
-    QUICHE_INCLUDE_DIR
-    QUICHE_LIBRARY
+    RUSTLS_INCLUDE_DIR
+    RUSTLS_LIBRARY
   VERSION_VAR
-    QUICHE_VERSION
+    RUSTLS_VERSION
 )
 
-if(QUICHE_FOUND)
-  set(QUICHE_INCLUDE_DIRS ${QUICHE_INCLUDE_DIR})
-  set(QUICHE_LIBRARIES    ${QUICHE_LIBRARY})
+if(RUSTLS_FOUND)
+  set(RUSTLS_INCLUDE_DIRS ${RUSTLS_INCLUDE_DIR})
+  set(RUSTLS_LIBRARIES    ${RUSTLS_LIBRARY})
 endif()
 
-mark_as_advanced(QUICHE_INCLUDE_DIR QUICHE_LIBRARY)
+mark_as_advanced(RUSTLS_INCLUDE_DIR RUSTLS_LIBRARY)

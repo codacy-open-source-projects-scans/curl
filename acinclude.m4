@@ -580,8 +580,8 @@ dnl hosts have it, but AIX 4.3 is one known exception.
 AC_DEFUN([TYPE_SOCKADDR_STORAGE],
 [
    AC_CHECK_TYPE([struct sockaddr_storage],
-        AC_DEFINE(HAVE_STRUCT_SOCKADDR_STORAGE, 1,
-                  [if struct sockaddr_storage is defined]), ,
+     AC_DEFINE(HAVE_STRUCT_SOCKADDR_STORAGE, 1,
+       [if struct sockaddr_storage is defined]), ,
    [
 #undef inline
 #ifdef _WIN32
@@ -645,9 +645,9 @@ $curl_includes_bsdsocket
   ])
   #
   if test "$curl_cv_recv" = "yes"; then
-      AC_DEFINE_UNQUOTED(HAVE_RECV, 1,
-        [Define to 1 if you have the recv function.])
-      curl_cv_func_recv="yes"
+    AC_DEFINE_UNQUOTED(HAVE_RECV, 1,
+      [Define to 1 if you have the recv function.])
+    curl_cv_func_recv="yes"
   else
     AC_MSG_ERROR([Unable to link function recv])
   fi
@@ -1217,7 +1217,7 @@ AC_DEFUN([CURL_CHECK_CA_BUNDLE], [
 
   AC_ARG_WITH(ca-bundle,
 AS_HELP_STRING([--with-ca-bundle=FILE],
-[Path to a file containing CA certificates (example: /etc/ca-bundle.crt)])
+  [Path to a file containing CA certificates (example: /etc/ca-bundle.crt)])
 AS_HELP_STRING([--without-ca-bundle], [Don't use a default CA bundle]),
   [
     want_ca="$withval"
@@ -1228,7 +1228,7 @@ AS_HELP_STRING([--without-ca-bundle], [Don't use a default CA bundle]),
   [ want_ca="unset" ])
   AC_ARG_WITH(ca-path,
 AS_HELP_STRING([--with-ca-path=DIRECTORY],
-[Path to a directory containing CA certificates stored individually, with \
+  [Path to a directory containing CA certificates stored individually, with \
 their filenames in a hash format. This option can be used with the OpenSSL, \
 GnuTLS, mbedTLS and wolfSSL backends. Refer to OpenSSL c_rehash for details. \
 (example: /etc/certificates)])
@@ -1338,10 +1338,10 @@ AS_HELP_STRING([--without-ca-path], [Don't use a default CA path]),
     AC_MSG_RESULT([no])
   fi
 
-  AC_MSG_CHECKING([whether to use builtin CA store of SSL library])
+  AC_MSG_CHECKING([whether to use built-in CA store of SSL library])
   AC_ARG_WITH(ca-fallback,
-AS_HELP_STRING([--with-ca-fallback], [Use the built in CA store of the SSL library])
-AS_HELP_STRING([--without-ca-fallback], [Don't use the built in CA store of the SSL library]),
+AS_HELP_STRING([--with-ca-fallback], [Use the built-in CA store of the SSL library])
+AS_HELP_STRING([--without-ca-fallback], [Don't use the built-in CA store of the SSL library]),
   [
     if test "x$with_ca_fallback" != "xyes" -a "x$with_ca_fallback" != "xno"; then
       AC_MSG_ERROR([--with-ca-fallback only allows yes or no as parameter])
@@ -1353,7 +1353,7 @@ AS_HELP_STRING([--without-ca-fallback], [Don't use the built in CA store of the 
     if test "x$OPENSSL_ENABLED" != "x1" -a "x$GNUTLS_ENABLED" != "x1"; then
       AC_MSG_ERROR([--with-ca-fallback only works with OpenSSL or GnuTLS])
     fi
-    AC_DEFINE_UNQUOTED(CURL_CA_FALLBACK, 1, [define "1" to use built in CA store of SSL library ])
+    AC_DEFINE_UNQUOTED(CURL_CA_FALLBACK, 1, [define "1" to use built-in CA store of SSL library ])
   fi
 ])
 
@@ -1368,7 +1368,7 @@ AC_DEFUN([CURL_CHECK_CA_EMBED], [
 
   AC_ARG_WITH(ca-embed,
 AS_HELP_STRING([--with-ca-embed=FILE],
-[Path to a file containing CA certificates (example: /etc/ca-bundle.crt)])
+  [Path to a file containing CA certificates (example: /etc/ca-bundle.crt)])
 AS_HELP_STRING([--without-ca-embed], [Don't embed a default CA bundle]),
   [
     want_ca_embed="$withval"
@@ -1495,10 +1495,10 @@ dnl variable while checking PKG_CONFIG_LIBDIR
 dnl
 
 AC_DEFUN([CURL_EXPORT_PCDIR], [
-    if test -n "$1"; then
-      PKG_CONFIG_LIBDIR="$1"
-      export PKG_CONFIG_LIBDIR
-    fi
+  if test -n "$1"; then
+    PKG_CONFIG_LIBDIR="$1"
+    export PKG_CONFIG_LIBDIR
+  fi
 ])
 
 dnl CURL_CHECK_PKGCONFIG ($module, [$pcdir])
@@ -1513,28 +1513,28 @@ dnl Optionally PKG_CONFIG_LIBDIR may be given as $pcdir.
 dnl
 
 AC_DEFUN([CURL_CHECK_PKGCONFIG], [
-    if test -n "$PKG_CONFIG"; then
-      PKGCONFIG="$PKG_CONFIG"
+  if test -n "$PKG_CONFIG"; then
+    PKGCONFIG="$PKG_CONFIG"
+  else
+    AC_PATH_TOOL([PKGCONFIG], [pkg-config], [no],
+      [$PATH:/usr/bin:/usr/local/bin])
+  fi
+
+  if test "x$PKGCONFIG" != "xno"; then
+    AC_MSG_CHECKING([for $1 options with pkg-config])
+    dnl ask pkg-config about $1
+    itexists=`CURL_EXPORT_PCDIR([$2]) dnl
+      $PKGCONFIG --exists $1 >/dev/null 2>&1 && echo 1`
+
+    if test -z "$itexists"; then
+      dnl pkg-config does not have info about the given module! set the
+      dnl variable to 'no'
+      PKGCONFIG="no"
+      AC_MSG_RESULT([no])
     else
-      AC_PATH_TOOL([PKGCONFIG], [pkg-config], [no],
-        [$PATH:/usr/bin:/usr/local/bin])
+      AC_MSG_RESULT([found])
     fi
-
-    if test "x$PKGCONFIG" != "xno"; then
-      AC_MSG_CHECKING([for $1 options with pkg-config])
-      dnl ask pkg-config about $1
-      itexists=`CURL_EXPORT_PCDIR([$2]) dnl
-        $PKGCONFIG --exists $1 >/dev/null 2>&1 && echo 1`
-
-      if test -z "$itexists"; then
-        dnl pkg-config does not have info about the given module! set the
-        dnl variable to 'no'
-        PKGCONFIG="no"
-        AC_MSG_RESULT([no])
-      else
-        AC_MSG_RESULT([found])
-      fi
-    fi
+  fi
 ])
 
 
@@ -1676,7 +1676,7 @@ AC_DEFUN([CURL_SUPPORTS_BUILTIN_AVAILABLE], [
   ],[
     AC_MSG_RESULT([yes])
     AC_DEFINE_UNQUOTED(HAVE_BUILTIN_AVAILABLE, 1,
-        [Define to 1 if you have the __builtin_available function.])
+      [Define to 1 if you have the __builtin_available function.])
   ],[
     AC_MSG_RESULT([no])
   ])

@@ -30,8 +30,6 @@
 
 #include <sys/stat.h>
 
-#define ENABLE_CURLX_PRINTF
-/* use our own printf() functions */
 #include "curlx.h"
 
 #include "tool_cfgable.h"
@@ -98,7 +96,7 @@ bool tool_create_output_file(struct OutStruct *outs,
             (errno == EEXIST || errno == EISDIR) &&
             /* because we keep having files that already exist */
             next_num < 100 /* and we have not reached the retry limit */ ) {
-        curlx_msnprintf(newname + len + 1, 12, "%d", next_num);
+        curl_msnprintf(newname + len + 1, 12, "%d", next_num);
         next_num++;
         do {
           fd = open(newname, O_CREAT | O_WRONLY | O_EXCL | O_BINARY, OPENMODE);

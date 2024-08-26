@@ -21,55 +21,53 @@
 # SPDX-License-Identifier: curl
 #
 ###########################################################################
-# Find the c-ares library
+# Find the quiche library
 #
-# Result Variables:
+# Input variables:
 #
-# CARES_FOUND         System has c-ares
-# CARES_INCLUDE_DIRS  The c-ares include directories
-# CARES_LIBRARIES     The c-ares library names
-# CARES_VERSION       Version of c-ares
+# QUICHE_INCLUDE_DIR   The quiche include directory
+# QUICHE_LIBRARY       Path to quiche library
+#
+# Result variables:
+#
+# QUICHE_FOUND         System has quiche
+# QUICHE_INCLUDE_DIRS  The quiche include directories
+# QUICHE_LIBRARIES     The quiche library names
+# QUICHE_VERSION       Version of quiche
 
 if(CURL_USE_PKGCONFIG)
   find_package(PkgConfig QUIET)
-  pkg_check_modules(PC_CARES "libcares")
+  pkg_check_modules(PC_QUICHE "quiche")
 endif()
 
-find_path(CARES_INCLUDE_DIR "ares.h"
+find_path(QUICHE_INCLUDE_DIR NAMES "quiche.h"
   HINTS
-    ${PC_CARES_INCLUDEDIR}
-    ${PC_CARES_INCLUDE_DIRS}
+    ${PC_QUICHE_INCLUDEDIR}
+    ${PC_QUICHE_INCLUDE_DIRS}
 )
 
-find_library(CARES_LIBRARY NAMES ${CARES_NAMES} "cares"
+find_library(QUICHE_LIBRARY NAMES "quiche"
   HINTS
-    ${PC_CARES_LIBDIR}
-    ${PC_CARES_LIBRARY_DIRS}
+    ${PC_QUICHE_LIBDIR}
+    ${PC_QUICHE_LIBRARY_DIRS}
 )
 
-if(PC_CARES_VERSION)
-  set(CARES_VERSION ${PC_CARES_VERSION})
-elseif(CARES_INCLUDE_DIR AND EXISTS "${CARES_INCLUDE_DIR}/ares_version.h")
-  set(_version_regex "#[\t ]*define[\t ]+ARES_VERSION_STR[\t ]+\"([^\"]*)\"")
-  file(STRINGS "${CARES_INCLUDE_DIR}/ares_version.h" _version_str REGEX "${_version_regex}")
-  string(REGEX REPLACE "${_version_regex}" "\\1" _version_str "${_version_str}")
-  set(CARES_VERSION "${_version_str}")
-  unset(_version_regex)
-  unset(_version_str)
+if(PC_QUICHE_VERSION)
+  set(QUICHE_VERSION ${PC_QUICHE_VERSION})
 endif()
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(CARES
+find_package_handle_standard_args(Quiche
   REQUIRED_VARS
-    CARES_INCLUDE_DIR
-    CARES_LIBRARY
+    QUICHE_INCLUDE_DIR
+    QUICHE_LIBRARY
   VERSION_VAR
-    CARES_VERSION
+    QUICHE_VERSION
 )
 
-if(CARES_FOUND)
-  set(CARES_INCLUDE_DIRS ${CARES_INCLUDE_DIR})
-  set(CARES_LIBRARIES    ${CARES_LIBRARY})
+if(QUICHE_FOUND)
+  set(QUICHE_INCLUDE_DIRS ${QUICHE_INCLUDE_DIR})
+  set(QUICHE_LIBRARIES    ${QUICHE_LIBRARY})
 endif()
 
-mark_as_advanced(CARES_INCLUDE_DIR CARES_LIBRARY)
+mark_as_advanced(QUICHE_INCLUDE_DIR QUICHE_LIBRARY)
