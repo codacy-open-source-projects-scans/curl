@@ -3154,6 +3154,11 @@ CURLcode Curl_http_header(struct Curl_easy *data,
       }
       return CURLE_OK;
     }
+    v = HD_VAL(hd, hdlen, "Trailer:");
+    if(v) {
+      data->req.resp_trailer = TRUE;
+      return CURLE_OK;
+    }
     break;
   case 'w':
   case 'W':
@@ -3241,9 +3246,6 @@ CURLcode Curl_http_statusline(struct Curl_easy *data,
   else if(k->httpversion == 20 ||
           (k->upgr101 == UPGR101_H2 && k->httpcode == 101)) {
     DEBUGF(infof(data, "HTTP/2 found, allow multiplexing"));
-    /* HTTP/2 cannot avoid multiplexing since it is a core functionality
-       of the protocol */
-    conn->bundle->multiuse = BUNDLE_MULTIPLEX;
   }
 
   k->http_bodyless = k->httpcode >= 100 && k->httpcode < 200;
@@ -3393,9 +3395,6 @@ static CURLcode http_on_response(struct Curl_easy *data,
     if(conn->httpversion != 20)
       infof(data, "Lying server, not serving HTTP/2");
   }
-  if(conn->httpversion < 20) {
-    conn->bundle->multiuse = BUNDLE_NO_MULTIUSE;
-  }
 
   if(k->httpcode < 200 && last_hd) {
     /* Intermediate responses might trigger processing of more
@@ -3440,6 +3439,7 @@ static CURLcode http_on_response(struct Curl_easy *data,
         /* Switching to HTTP/2, where we will get more responses */
         infof(data, "Received 101, Switching to HTTP/2");
         k->upgr101 = UPGR101_RECEIVED;
+        data->conn->bits.asks_multiplex = FALSE;
         /* We expect more response from HTTP/2 later */
         k->header = TRUE;
         k->headerline = 0; /* restart the header line counter */
@@ -3486,6 +3486,7 @@ static CURLcode http_on_response(struct Curl_easy *data,
   if(k->upgr101 == UPGR101_H2) {
     /* A requested upgrade was denied, poke the multi handle to possibly
        allow a pending pipewait to continue */
+    data->conn->bits.asks_multiplex = FALSE;
     Curl_multi_connchanged(data->multi);
   }
 

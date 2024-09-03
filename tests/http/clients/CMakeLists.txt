@@ -27,7 +27,7 @@ transform_makefile_inc("Makefile.inc" "${CMAKE_CURRENT_BINARY_DIR}/Makefile.inc.
 include("${CMAKE_CURRENT_BINARY_DIR}/Makefile.inc.cmake")
 
 foreach(_target IN LISTS check_PROGRAMS)
-  set(_target_name "curl-test-client-${_target}")
+  set(_target_name "curlt-client-${_target}")
   add_executable(${_target_name} EXCLUDE_FROM_ALL "${_target}.c")
   add_dependencies(testdeps ${_target_name})
   target_include_directories(${_target_name} PRIVATE
@@ -38,10 +38,6 @@ foreach(_target IN LISTS check_PROGRAMS)
   target_compile_definitions(${_target_name} PRIVATE "CURL_NO_OLDIES")
   if(LIB_SELECTED STREQUAL LIB_STATIC AND WIN32)
     set_property(TARGET ${_target_name} APPEND PROPERTY COMPILE_DEFINITIONS "CURL_STATICLIB")
-  endif()
-  if(MINGW)
-    # For mingw-w64 7.0.0 and earlier to avoid '-Wformat='
-    set_property(TARGET ${_target_name} APPEND PROPERTY COMPILE_DEFINITIONS "__USE_MINGW_ANSI_STDIO=1")
   endif()
   set_target_properties(${_target_name} PROPERTIES
     OUTPUT_NAME "${_target}" UNITY_BUILD OFF

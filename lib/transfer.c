@@ -306,11 +306,18 @@ static CURLcode sendrecv_dl(struct Curl_easy *data,
     nread = Curl_xfer_recv_resp(data, buf, bytestoread,
                                 is_multiplex, &result);
     if(nread < 0) {
-      if(CURLE_AGAIN == result) {
-        result = CURLE_OK;
-        break; /* get out of loop */
+      if(CURLE_AGAIN != result)
+        goto out; /* real error */
+      result = CURLE_OK;
+      if(data->req.download_done && data->req.no_body &&
+         !data->req.resp_trailer) {
+        DEBUGF(infof(data, "EAGAIN, download done, no trailer announced, "
+               "not waiting for EOS"));
+        nread = 0;
+        /* continue as if we read the EOS */
       }
-      goto out; /* real error */
+      else
+        break; /* get out of loop */
     }
 
     /* We only get a 0-length read on EndOfStream */
@@ -511,15 +518,7 @@ CURLcode Curl_sendrecv(struct Curl_easy *data, struct curltime *nowp)
      * returning.
      */
     if(!(data->req.no_body) && (k->size != -1) &&
-       (k->bytecount != k->size) &&
-#ifdef CURL_DO_LINEEND_CONV
-       /* Most FTP servers do not adjust their file SIZE response for CRLFs,
-          so we will check to see if the discrepancy can be explained
-          by the number of CRLFs we have changed to LFs.
-       */
-       (k->bytecount != (k->size + data->state.crlf_conversions)) &&
-#endif /* CURL_DO_LINEEND_CONV */
-       !k->newurl) {
+       (k->bytecount != k->size) && !k->newurl) {
       failf(data, "transfer closed with %" CURL_FORMAT_CURL_OFF_T
             " bytes remaining to read", k->size - k->bytecount);
       result = CURLE_PARTIAL_FILE;
@@ -1186,15 +1185,7 @@ CURLcode Curl_xfer_write_resp(struct Curl_easy *data,
       int cwtype = CLIENTWRITE_BODY;
       if(is_eos)
         cwtype |= CLIENTWRITE_EOS;
-
-#ifndef CURL_DISABLE_POP3
-      if(blen && data->conn->handler->protocol & PROTO_FAMILY_POP3) {
-        result = data->req.ignorebody? CURLE_OK :
-                 Curl_pop3_write(data, buf, blen);
-      }
-      else
-#endif /* CURL_DISABLE_POP3 */
-        result = Curl_client_write(data, cwtype, buf, blen);
+      result = Curl_client_write(data, cwtype, buf, blen);
     }
   }
 
@@ -1249,15 +1240,9 @@ CURLcode Curl_xfer_send(struct Curl_easy *data,
   CURLcode result;
   int sockindex;
 
-  if(!data || !data->conn)
-    return CURLE_FAILED_INIT;
-  /* FIXME: would like to enable this, but some protocols (MQTT) do not
-   * setup the transfer correctly, it seems
-  if(data->conn->writesockfd == CURL_SOCKET_BAD) {
-    failf(data, "transfer not setup for sending");
-    DEBUGASSERT(0);
-    return CURLE_SEND_ERROR;
-  } */
+  DEBUGASSERT(data);
+  DEBUGASSERT(data->conn);
+
   sockindex = ((data->conn->writesockfd != CURL_SOCKET_BAD) &&
                (data->conn->writesockfd == data->conn->sock[SECONDARYSOCKET]));
   result = Curl_conn_send(data, sockindex, buf, blen, eos, pnwritten);
@@ -1279,18 +1264,13 @@ CURLcode Curl_xfer_recv(struct Curl_easy *data,
 {
   int sockindex;
 
-  if(!data || !data->conn)
-    return CURLE_FAILED_INIT;
-  /* FIXME: would like to enable this, but some protocols (MQTT) do not
-   * setup the transfer correctly, it seems
-  if(data->conn->sockfd == CURL_SOCKET_BAD) {
-    failf(data, "transfer not setup for receiving");
-    DEBUGASSERT(0);
-    return CURLE_RECV_ERROR;
-  } */
+  DEBUGASSERT(data);
+  DEBUGASSERT(data->conn);
+  DEBUGASSERT(data->set.buffer_size > 0);
+
   sockindex = ((data->conn->sockfd != CURL_SOCKET_BAD) &&
                (data->conn->sockfd == data->conn->sock[SECONDARYSOCKET]));
-  if(data->set.buffer_size > 0 && (size_t)data->set.buffer_size < blen)
+  if((size_t)data->set.buffer_size < blen)
     blen = (size_t)data->set.buffer_size;
   return Curl_conn_recv(data, sockindex, buf, blen, pnrcvd);
 }

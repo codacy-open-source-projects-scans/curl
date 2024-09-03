@@ -434,6 +434,8 @@ static void cf_osslq_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
   CURL_TRC_CF(data, cf, "destroy");
   if(ctx) {
     CURL_TRC_CF(data, cf, "cf_osslq_destroy()");
+    if(ctx->tls.ossl.ssl)
+      cf_osslq_ctx_close(ctx);
     cf_osslq_ctx_free(ctx);
   }
   cf->ctx = NULL;
@@ -562,7 +564,6 @@ static CURLcode cf_osslq_verify_peer(struct Curl_cfilter *cf,
 
   cf->conn->bits.multiplex = TRUE; /* at least potentially multiplexed */
   cf->conn->httpversion = 30;
-  cf->conn->bundle->multiuse = BUNDLE_MULTIPLEX;
 
   return Curl_vquic_tls_verify_peer(&ctx->tls, cf, data, &ctx->peer);
 }
@@ -612,10 +613,8 @@ static CURLcode h3_data_setup(struct Curl_cfilter *cf,
   struct cf_osslq_ctx *ctx = cf->ctx;
   struct h3_stream_ctx *stream = H3_STREAM_CTX(ctx, data);
 
-  if(!data) {
-    failf(data, "initialization failure, transfer not http initialized");
+  if(!data)
     return CURLE_FAILED_INIT;
-  }
 
   if(stream)
     return CURLE_OK;

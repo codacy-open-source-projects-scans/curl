@@ -1736,6 +1736,7 @@ CURLcode Curl_http2_request_upgrade(struct dynbuf *req,
   free(base64);
 
   k->upgr101 = UPGR101_H2;
+  data->conn->bits.asks_multiplex = TRUE;
 
   return result;
 }
@@ -2837,7 +2838,6 @@ CURLcode Curl_http2_switch(struct Curl_easy *data,
 
   conn->httpversion = 20; /* we know we are on HTTP/2 now */
   conn->bits.multiplex = TRUE; /* at least potentially multiplexed */
-  conn->bundle->multiuse = BUNDLE_MULTIPLEX;
   Curl_multi_connchanged(data->multi);
 
   if(cf->next) {
@@ -2861,7 +2861,6 @@ CURLcode Curl_http2_switch_at(struct Curl_cfilter *cf, struct Curl_easy *data)
   cf_h2 = cf->next;
   cf->conn->httpversion = 20; /* we know we are on HTTP/2 now */
   cf->conn->bits.multiplex = TRUE; /* at least potentially multiplexed */
-  cf->conn->bundle->multiuse = BUNDLE_MULTIPLEX;
   Curl_multi_connchanged(data->multi);
 
   if(cf_h2->next) {
@@ -2914,7 +2913,6 @@ CURLcode Curl_http2_upgrade(struct Curl_easy *data,
 
   conn->httpversion = 20; /* we know we are on HTTP/2 now */
   conn->bits.multiplex = TRUE; /* at least potentially multiplexed */
-  conn->bundle->multiuse = BUNDLE_MULTIPLEX;
   Curl_multi_connchanged(data->multi);
 
   if(cf->next) {
