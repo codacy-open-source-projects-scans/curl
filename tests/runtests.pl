@@ -122,6 +122,7 @@ my $libtool;
 my $repeat = 0;
 
 my $start;          # time at which testing started
+my $args;           # command-line arguments
 
 my $uname_release = `uname -r`;
 my $is_wsl = $uname_release =~ /Microsoft$/;
@@ -480,6 +481,7 @@ sub parseprotocols {
 # Information to do with servers is displayed in displayserverfeatures, after
 # the server initialization is performed.
 sub checksystemfeatures {
+    my $proto;
     my $feat;
     my $curl;
     my $libcurl;
@@ -623,8 +625,9 @@ sub checksystemfeatures {
             }
         }
         elsif($_ =~ /^Protocols: (.*)/i) {
+            $proto = $1;
             # these are the protocols compiled in to this libcurl
-            parseprotocols($1);
+            parseprotocols($proto);
         }
         elsif($_ =~ /^Features: (.*)/i) {
             $feat = $1;
@@ -847,12 +850,14 @@ sub checksystemfeatures {
     logmsg ("********* System characteristics ******** \n",
             "* $curl\n",
             "* $libcurl\n",
+            "* Protocols: $proto\n",
             "* Features: $feat\n",
             "* Disabled: $dis\n",
             "* Host: $hostname\n",
             "* System: $hosttype\n",
             "* OS: $hostos\n",
-            "* Perl: $^V ($^X)\n");
+            "* Perl: $^V ($^X)\n",
+            "* Args: $args\n");
 
     if($jobs) {
         # Only show if not the default for now
@@ -864,8 +869,9 @@ sub checksystemfeatures {
                "*\n");
     }
 
-    logmsg sprintf("* Env: %s%s%s", $valgrind?"Valgrind ":"",
+    logmsg sprintf("* Env: %s%s%s%s", $valgrind?"Valgrind ":"",
                    $run_event_based?"event-based ":"",
+                   $bundle?"bundle ":"",
                    $nghttpx_h3);
     logmsg sprintf("%s\n", $libtool?"Libtool ":"");
     logmsg ("* Seed: $randseed\n");
@@ -2204,6 +2210,8 @@ if(@ARGV && $ARGV[-1] eq '$TFLAGS') {
     push(@ARGV, split(' ', $ENV{'TFLAGS'})) if defined($ENV{'TFLAGS'});
 }
 
+$args = join(' ', @ARGV);
+
 $valgrind = checktestcmd("valgrind");
 my $number=0;
 my $fromnum=-1;
@@ -2232,6 +2240,10 @@ while(@ARGV) {
         # use this curl only to talk to APIs (currently only CI test APIs)
         $ACURL=shell_quote($ARGV[1]);
         shift @ARGV;
+    }
+    elsif ($ARGV[0] eq "-bundle") {
+        # use test bundles
+        $bundle=1;
     }
     elsif ($ARGV[0] eq "-d") {
         # have the servers display protocol output
@@ -2410,6 +2422,7 @@ Usage: runtests.pl [options] [test selection(s)]
   -a       continue even if a test fails
   -ac path use this curl only to talk to APIs (currently only CI test APIs)
   -am      automake style output PASS/FAIL: [number] [name]
+  -bundle  use test bundles
   -c path  use this curl executable
   -d       display server debug info
   -e       event-based execution
@@ -2598,11 +2611,11 @@ if(!$listonly) {
 # Output information about the curl build
 #
 if(!$listonly) {
-    if(open(my $fd, "<", "buildinfo.txt")) {
+    if(open(my $fd, "<", "../buildinfo.txt")) {
         while(my $line = <$fd>) {
             chomp $line;
             if($line && $line !~ /^#/) {
-                logmsg("* buildinfo.$line\n");
+                logmsg("* $line\n");
             }
         }
         close($fd);
@@ -2886,6 +2899,7 @@ createrunners($numrunners);
 #   - if a runner has a response for us, process the response
 
 # run through each candidate test and execute it
+my $runner_wait_cnt = 0;
 while () {
     # check the abort flag
     if($globalabort) {
@@ -2943,59 +2957,84 @@ while () {
     # If we could be running more tests, don't wait so we can schedule a new
     # one immediately. If all runners are busy, wait a fraction of a second
     # for one to finish so we can still loop around to check the abort flag.
-    my $runnerwait = scalar(@runnersidle) && scalar(@runtests) ? 0 : 0.5;
-    my ($ridready, $riderror) = runnerar_ready($runnerwait);
-    if($ridready && ! defined $runnersrunning{$ridready}) {
-        # On Linux, a closed pipe still shows up as ready instead of error.
-        # Detect this here by seeing if we are expecting it to be ready and
-        # treat it as an error if not.
-        logmsg "ERROR: Runner $ridready is unexpectedly ready; is probably actually dead\n";
-        $riderror = $ridready;
-        undef $ridready;
+    my $runnerwait = scalar(@runnersidle) && scalar(@runtests) ? 0 : 1.0;
+    my (@ridsready, $riderror) = runnerar_ready($runnerwait);
+    if(@ridsready) {
+        for my $ridready (@ridsready) {
+            if($ridready && ! defined $runnersrunning{$ridready}) {
+                # On Linux, a closed pipe still shows up as ready instead of error.
+                # Detect this here by seeing if we are expecting it to be ready and
+                # treat it as an error if not.
+                logmsg "ERROR: Runner $ridready is unexpectedly ready; is probably actually dead\n";
+                $riderror = $ridready;
+                undef $ridready;
+            }
+            if($ridready) {
+                # This runner is ready to be serviced
+                my $testnum = $runnersrunning{$ridready};
+                defined $testnum ||  die "Internal error: test for runner $ridready unknown";
+                delete $runnersrunning{$ridready};
+                my ($error, $again) = singletest($ridready, $testnum, $countforrunner{$ridready}, $totaltests);
+                if($again) {
+                    # this runner is busy running a test
+                    $runnersrunning{$ridready} = $testnum;
+                } else {
+                    # Test is complete
+                    $runner_wait_cnt = 0;
+                    runnerready($ridready);
+
+                    if($error < 0) {
+                        # not a test we can run
+                        next;
+                    }
+
+                    $total++; # number of tests we've run
+
+                    if($error>0) {
+                        if($error==2) {
+                            # ignored test failures
+                            $failedign .= "$testnum ";
+                        }
+                        else {
+                            $failed.= "$testnum ";
+                        }
+                        if($postmortem) {
+                            # display all files in $LOGDIR/ in a nice way
+                            displaylogs($ridready, $testnum);
+                        }
+                        if($error==2) {
+                            $ign++; # ignored test result counter
+                        }
+                        elsif(!$anyway) {
+                            # a test failed, abort
+                            logmsg "\n - abort tests\n";
+                            undef @runtests;  # empty out the remaining tests
+                        }
+                    }
+                    elsif(!$error) {
+                        $ok++; # successful test counter
+                    }
+                }
+            }
+        }
     }
-    if($ridready) {
-        # This runner is ready to be serviced
-        my $testnum = $runnersrunning{$ridready};
-        defined $testnum ||  die "Internal error: test for runner $ridready unknown";
-        delete $runnersrunning{$ridready};
-        my ($error, $again) = singletest($ridready, $testnum, $countforrunner{$ridready}, $totaltests);
-        if($again) {
-            # this runner is busy running a test
-            $runnersrunning{$ridready} = $testnum;
-        } else {
-            # Test is complete
-            runnerready($ridready);
-
-            if($error < 0) {
-                # not a test we can run
-                next;
+    if(!@ridsready && $runnerwait && !$torture && scalar(%runnersrunning)) {
+        $runner_wait_cnt++;
+        if($runner_wait_cnt >= 5) {
+            my $msg = "waiting for " . scalar(%runnersrunning) . " results:";
+            my $sep = " ";
+            foreach my $rid (keys %runnersrunning) {
+                $msg .= $sep . $runnersrunning{$rid} . "[$rid]";
+                $sep = ", "
             }
-
-            $total++; # number of tests we've run
-
-            if($error>0) {
-                if($error==2) {
-                    # ignored test failures
-                    $failedign .= "$testnum ";
-                }
-                else {
-                    $failed.= "$testnum ";
-                }
-                if($postmortem) {
-                    # display all files in $LOGDIR/ in a nice way
-                    displaylogs($ridready, $testnum);
-                }
-                if($error==2) {
-                    $ign++; # ignored test result counter
-                }
-                elsif(!$anyway) {
-                    # a test failed, abort
-                    logmsg "\n - abort tests\n";
-                    undef @runtests;  # empty out the remaining tests
-                }
-            }
-            elsif(!$error) {
-                $ok++; # successful test counter
+            logmsg "$msg\n";
+        }
+        if($runner_wait_cnt >= 10) {
+            $runner_wait_cnt = 0;
+            foreach my $rid (keys %runnersrunning) {
+                my $testnum = $runnersrunning{$rid};
+                logmsg "current state of test $testnum in [$rid]:\n";
+                displaylogs($rid, $testnum);
             }
         }
     }
