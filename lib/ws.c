@@ -24,7 +24,7 @@
 #include "curl_setup.h"
 #include <curl/curl.h>
 
-#if defined(USE_WEBSOCKETS) && !defined(CURL_DISABLE_HTTP)
+#if !defined(CURL_DISABLE_WEBSOCKETS) && !defined(CURL_DISABLE_HTTP)
 
 #include "urldata.h"
 #include "bufq.h"
@@ -930,9 +930,7 @@ CURL_EXTERN CURLcode curl_ws_recv(struct Curl_easy *data, void *buffer,
 {
   struct connectdata *conn = data->conn;
   struct websocket *ws;
-  bool done = FALSE; /* not filled passed buffer yet */
   struct ws_collect ctx;
-  CURLcode result;
 
   if(!conn) {
     /* Unhappy hack with lifetimes of transfers and connection */
@@ -961,7 +959,9 @@ CURL_EXTERN CURLcode curl_ws_recv(struct Curl_easy *data, void *buffer,
   ctx.buffer = buffer;
   ctx.buflen = buflen;
 
-  while(!done) {
+  while(1) {
+    CURLcode result;
+
     /* receive more when our buffer is empty */
     if(Curl_bufq_is_empty(&ws->recvbuf)) {
       ssize_t n = Curl_bufq_slurp(&ws->recvbuf, nw_in_recv, data, &result);
@@ -984,7 +984,6 @@ CURL_EXTERN CURLcode curl_ws_recv(struct Curl_easy *data, void *buffer,
         ws_dec_info(&ws->dec, data, "need more input");
         continue;  /* nothing written, try more input */
       }
-      done = TRUE;
       break;
     }
     else if(result) {
@@ -994,7 +993,6 @@ CURL_EXTERN CURLcode curl_ws_recv(struct Curl_easy *data, void *buffer,
       /* The decoded frame is passed back to our caller.
        * There are frames like PING were we auto-respond to and
        * that we do not return. For these `ctx.written` is not set. */
-      done = TRUE;
       break;
     }
   }
@@ -1247,7 +1245,7 @@ CURL_EXTERN CURLcode curl_ws_send(CURL *data, const void *buffer,
         goto out;
       }
       /* We added the complete data to our sendbuf. Report one byte less as
-       * sent. This parital success should make the caller invoke us again
+       * sent. This partial success should make the caller invoke us again
        * with the last byte. */
       *sent = payload_added - 1;
       result = Curl_bufq_unwrite(&ws->sendbuf, 1);
@@ -1387,4 +1385,4 @@ CURL_EXTERN const struct curl_ws_frame *curl_ws_meta(struct Curl_easy *data)
   (void)data;
   return NULL;
 }
-#endif /* USE_WEBSOCKETS */
+#endif /* !CURL_DISABLE_WEBSOCKETS */

@@ -175,7 +175,6 @@ curl_verbose_msg="enabled (--disable-verbose)"
  curl_altsvc_msg="enabled (--disable-alt-svc)"
 curl_headers_msg="enabled (--disable-headers-api)"
    curl_hsts_msg="enabled (--disable-hsts)"
-     curl_ws_msg="no      (--enable-websockets)"
     ssl_backends=
      curl_h1_msg="enabled (internal)"
      curl_h2_msg="no      (--with-nghttp2)"
@@ -571,6 +570,14 @@ esac
 case $host_os in
   aix*)
     supports_unittests=no
+    ;;
+esac
+
+# In order to detect support of sendmmsg(), we need to escape the POSIX
+# jail by defining _GNU_SOURCE or <sys/socket.h> will not expose it.
+case $host_os in
+  linux*)
+    CPPFLAGS="$CPPFLAGS -D_GNU_SOURCE"
     ;;
 esac
 
@@ -1250,12 +1257,12 @@ if test "$HAVE_GETHOSTBYNAME" != "1"; then
       AC_MSG_CHECKING([for gethostbyname in $winsock_LIB])
       AC_LINK_IFELSE([
         AC_LANG_PROGRAM([[
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <winsock2.h>
-#endif
+          #ifdef _WIN32
+          #ifndef WIN32_LEAN_AND_MEAN
+          #define WIN32_LEAN_AND_MEAN
+          #endif
+          #include <winsock2.h>
+          #endif
         ]],[[
           gethostbyname("localhost");
         ]])
@@ -1276,8 +1283,8 @@ if test "$HAVE_GETHOSTBYNAME" != "1"; then
   AC_MSG_CHECKING([for gethostbyname for Minix 3])
   AC_LINK_IFELSE([
     AC_LANG_PROGRAM([[
-/* Older Minix versions may need <net/gen/netdb.h> here instead */
-#include <netdb.h>
+      /* Older Minix versions may need <net/gen/netdb.h> here instead */
+      #include <netdb.h>
     ]],[[
       gethostbyname("localhost");
     ]])
@@ -1294,8 +1301,8 @@ if test "$HAVE_GETHOSTBYNAME" != "1"; then
   AC_MSG_CHECKING([for gethostbyname for eCos])
   AC_LINK_IFELSE([
     AC_LANG_PROGRAM([[
-#include <stdio.h>
-#include <netdb.h>
+      #include <stdio.h>
+      #include <netdb.h>
     ]],[[
       gethostbyname("localhost");
     ]])
@@ -1780,27 +1787,27 @@ AS_HELP_STRING([--disable-ipv6],[Disable IPv6 support]),
   esac ],
 
   AC_RUN_IFELSE([AC_LANG_SOURCE([[
-/* are AF_INET6 and sockaddr_in6 available? */
-#include <sys/types.h>
-#ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#else
-#include <sys/socket.h>
-#include <netinet/in.h>
-#if defined (__TANDEM)
-# include <netinet/in6.h>
-#endif
-#endif
+    /* are AF_INET6 and sockaddr_in6 available? */
+    #include <sys/types.h>
+    #ifdef _WIN32
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+    #else
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #if defined (__TANDEM)
+    # include <netinet/in6.h>
+    #endif
+    #endif
 
-int main(void)
-{
- struct sockaddr_in6 s;
- (void)s;
- return socket(AF_INET6, SOCK_STREAM, 0) < 0;
-}
-]])
-],
+    int main(void)
+    {
+      struct sockaddr_in6 s;
+      (void)s;
+      return socket(AF_INET6, SOCK_STREAM, 0) < 0;
+    }
+  ]])
+  ],
   AC_MSG_RESULT(yes)
   ipv6=yes,
   AC_MSG_RESULT(no)
@@ -1817,20 +1824,20 @@ if test "$ipv6" = yes; then
 
   AC_MSG_CHECKING([if struct sockaddr_in6 has sin6_scope_id member])
   AC_COMPILE_IFELSE([ AC_LANG_PROGRAM([[
-#include <sys/types.h>
-#ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#else
-#include <netinet/in.h>
-#if defined (__TANDEM)
-# include <netinet/in6.h>
-#endif
-#endif
-]], [[
-  struct sockaddr_in6 s;
-  s.sin6_scope_id = 0;
-]])], [
+    #include <sys/types.h>
+    #ifdef _WIN32
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+    #else
+    #include <netinet/in.h>
+    #if defined (__TANDEM)
+    # include <netinet/in6.h>
+    #endif
+    #endif
+  ]], [[
+    struct sockaddr_in6 s;
+    s.sin6_scope_id = 0;
+  ]])], [
     AC_MSG_RESULT([yes])
     AC_DEFINE(HAVE_SOCKADDR_IN6_SIN6_SCOPE_ID, 1, [Define to 1 if struct sockaddr_in6 has the sin6_scope_id member])
   ], [
@@ -1953,10 +1960,10 @@ if test x"$want_gss" = xyes; then
         [],
         [not_mit=1],
         [
-AC_INCLUDES_DEFAULT
-#ifdef HAVE_GSSAPI_GSSAPI_H
-#include <gssapi/gssapi.h>
-#endif
+          AC_INCLUDES_DEFAULT
+          #ifdef HAVE_GSSAPI_GSSAPI_H
+          #include <gssapi/gssapi.h>
+          #endif
         ])
       if test "x$not_mit" = "x1"; then
         dnl MIT not found, check for Heimdal
@@ -1974,9 +1981,9 @@ AC_INCLUDES_DEFAULT
         AC_MSG_CHECKING([if GSS-API headers declare GSS_C_NT_HOSTBASED_SERVICE])
         AC_COMPILE_IFELSE([
           AC_LANG_PROGRAM([[
-#include <gssapi/gssapi.h>
-#include <gssapi/gssapi_generic.h>
-#include <gssapi/gssapi_krb5.h>
+            #include <gssapi/gssapi.h>
+            #include <gssapi/gssapi_generic.h>
+            #include <gssapi/gssapi_krb5.h>
           ]],[[
             gss_import_name(
                             (OM_uint32 *)0,
@@ -3598,8 +3605,8 @@ if test X"$want_quiche" != Xno; then
           LIBCURL_PC_REQUIRES_PRIVATE="$LIBCURL_PC_REQUIRES_PRIVATE quiche",
           [],
           [
-AC_INCLUDES_DEFAULT
-#include <sys/socket.h>
+            AC_INCLUDES_DEFAULT
+            #include <sys/socket.h>
           ]
         )
       ],
@@ -4101,8 +4108,10 @@ AC_CHECK_FUNCS([\
   if_nametoindex \
   mach_absolute_time \
   pipe \
+  poll \
   sched_yield \
   sendmsg \
+  sendmmsg \
   setlocale \
   setmode \
   setrlimit \
@@ -4954,37 +4963,39 @@ if test "x$OPENSSL_ENABLED" = "x1"; then
   AC_CHECK_FUNCS([SSL_set0_wbio])
 fi
 
-dnl *************************************************************
-dnl WebSockets
-dnl
-AC_MSG_CHECKING([whether to support WebSockets])
-AC_ARG_ENABLE(websockets,
-AS_HELP_STRING([--enable-websockets],[Enable WebSockets support])
-AS_HELP_STRING([--disable-websockets],[Disable WebSockets support]),
-[ case "$enableval" in
-  no)
-    AC_MSG_RESULT(no)
-    ;;
-  *)
-    if test ${ac_cv_sizeof_curl_off_t} -gt 4; then
-      AC_MSG_RESULT(yes)
-      curl_ws_msg="enabled"
-      AC_DEFINE_UNQUOTED(USE_WEBSOCKETS, [1], [enable WebSockets support])
-      SUPPORT_PROTOCOLS="$SUPPORT_PROTOCOLS WS"
-      if test "x$SSL_ENABLED" = "x1"; then
-        SUPPORT_PROTOCOLS="$SUPPORT_PROTOCOLS WSS"
-      fi
-      experimental="$experimental WebSockets"
-    else
-      dnl WebSockets requires >32 bit curl_off_t
+if test "x$CURL_DISABLE_HTTP" != "x1"; then
+  dnl *************************************************************
+  dnl WebSockets
+  dnl
+  AC_MSG_CHECKING([whether to support WebSockets])
+  AC_ARG_ENABLE(websockets,
+  AS_HELP_STRING([--enable-websockets],[Enable WebSockets support])
+  AS_HELP_STRING([--disable-websockets],[Disable WebSockets support]),
+  [ case "$enableval" in
+    no)
       AC_MSG_RESULT(no)
-      AC_MSG_WARN([WebSockets disabled due to lack of >32 bit curl_off_t])
-    fi
-    ;;
-  esac ],
-    AC_MSG_RESULT(no)
-)
-
+      AC_DEFINE(CURL_DISABLE_WEBSOCKETS, [1], [disable WebSockets])
+      AC_SUBST(CURL_DISABLE_WEBSOCKETS, [1])
+      ;;
+    *)
+      if test ${ac_cv_sizeof_curl_off_t} -gt 4; then
+        AC_MSG_RESULT(yes)
+      else
+        dnl WebSockets requires >32 bit curl_off_t
+        AC_MSG_RESULT(no)
+        AC_MSG_WARN([WebSockets disabled due to lack of >32 bit curl_off_t])
+        AC_DEFINE(CURL_DISABLE_WEBSOCKETS, [1], [disable WebSockets])
+        AC_SUBST(CURL_DISABLE_WEBSOCKETS, [1])
+      fi
+      ;;
+    esac ],
+      AC_MSG_RESULT(yes)
+  )
+else
+  AC_MSG_WARN([WebSockets disabled because HTTP is disabled])
+  AC_DEFINE(CURL_DISABLE_WEBSOCKETS, [1], [disable WebSockets])
+  AC_SUBST(CURL_DISABLE_WEBSOCKETS, [1])
+fi
 
 dnl ************************************************************
 dnl hiding of library internal symbols
@@ -5208,6 +5219,9 @@ if test "x$want_curldebug" = "xyes"; then
 fi
 if test "x$CURL_CA_EMBED" != "x"; then
   SUPPORT_FEATURES="$SUPPORT_FEATURES CAcert"
+  CURL_CA_EMBED_msg="$CURL_CA_EMBED"
+else
+  CURL_CA_EMBED_msg='no'
 fi
 
 dnl replace spaces with newlines
@@ -5307,6 +5321,12 @@ if test "x$CURL_DISABLE_RTSP" != "x1"; then
 fi
 if test "x$USE_LIBRTMP" = "x1"; then
   SUPPORT_PROTOCOLS="$SUPPORT_PROTOCOLS RTMP"
+fi
+if test "x$CURL_DISABLE_WEBSOCKETS" != "x1"; then
+  SUPPORT_PROTOCOLS="$SUPPORT_PROTOCOLS WS"
+  if test "x$SSL_ENABLED" = "x1"; then
+    SUPPORT_PROTOCOLS="$SUPPORT_PROTOCOLS WSS"
+  fi
 fi
 
 dnl replace spaces with newlines
@@ -5410,7 +5430,7 @@ AC_MSG_NOTICE([Configured to build curl/libcurl:
   SSPI:             ${curl_sspi_msg}
   ca cert bundle:   ${ca}${ca_warning}
   ca cert path:     ${capath}${capath_warning}
-  ca cert embed:    ${CURL_CA_EMBED}
+  ca cert embed:    ${CURL_CA_EMBED_msg}
   ca fallback:      ${with_ca_fallback}
   LDAP:             ${curl_ldap_msg}
   LDAPS:            ${curl_ldaps_msg}
@@ -5425,7 +5445,6 @@ AC_MSG_NOTICE([Configured to build curl/libcurl:
   HTTP2:            ${curl_h2_msg}
   HTTP3:            ${curl_h3_msg}
   ECH:              ${curl_ech_msg}
-  WebSockets:       ${curl_ws_msg}
   Protocols:        ${SUPPORT_PROTOCOLS_LOWER}
   Features:         ${SUPPORT_FEATURES}
 ])

@@ -4,16 +4,8 @@
 FILE
 </keywords>
 </info>
-#
-# Server-side
+
 <reply>
-<data>
-foo
-   bar swsclose
-bar
-   foo
-moo
-</data>
 </reply>
 
 # Client-side
@@ -21,20 +13,15 @@ moo
 <server>
 file
 </server>
-# tool is what to use instead of 'curl'
-<tool>
-lib%TESTNUMBER
-</tool>
-
 <name>
-simple multi file:// get
+file:// don't overwrite self with --skip-existing
 </name>
-<command>
-file://%FILE_PWD/%LOGDIR/test%TESTNUMBER.txt
+<command option="no-output">
+file://localhost%FILE_PWD/%LOGDIR/test%TESTNUMBER.txt -o %LOGDIR/test%TESTNUMBER.txt --skip-existing
 </command>
 <file name="%LOGDIR/test%TESTNUMBER.txt">
 foo
-   bar swsclose
+   bar
 bar
    foo
 moo
@@ -43,5 +30,8 @@ moo
 
 # Verify data after the test has been "shot"
 <verify>
+<stderr mode="text">
+Note: skips transfer, "%LOGDIR/test%TESTNUMBER.txt" exists locally
+</stderr>
 </verify>
 </testcase>
