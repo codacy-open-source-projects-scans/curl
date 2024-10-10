@@ -960,7 +960,10 @@ if(NOT CURL_DISABLE_LDAP)
   # Now that we know, we are not using Windows LDAP...
   if(NOT USE_WIN32_LDAP)
     # Check for LDAP
-    set(CMAKE_REQUIRED_LIBRARIES ${OPENSSL_LIBRARIES})
+    unset(CMAKE_REQUIRED_LIBRARIES)
+    if(USE_OPENSSL)
+      set(CMAKE_REQUIRED_LIBRARIES ${OPENSSL_LIBRARIES})
+    endif()
     check_library_exists("${CMAKE_LDAP_LIB}" "ldap_init" "" HAVE_LIBLDAP)
     if(HAVE_LIBLDAP)
       check_library_exists("${CMAKE_LDAP_LIB};${CMAKE_LBER_LIB}" "ber_init" "" HAVE_LIBLBER)
@@ -980,10 +983,12 @@ if(NOT CURL_DISABLE_LDAP)
       message(STATUS "LDAP_H not found CURL_DISABLE_LDAP set ON")
       set(CURL_DISABLE_LDAP ON CACHE BOOL "" FORCE)
       set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES_BAK})  # LDAP includes will not be used
+      unset(CMAKE_REQUIRED_LIBRARIES)
     elseif(NOT HAVE_LIBLDAP)
       message(STATUS "LDAP library '${CMAKE_LDAP_LIB}' not found CURL_DISABLE_LDAP set ON")
       set(CURL_DISABLE_LDAP ON CACHE BOOL "" FORCE)
       set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES_BAK})  # LDAP includes will not be used
+      unset(CMAKE_REQUIRED_LIBRARIES)
     else()
       if(CMAKE_LDAP_INCLUDE_DIR)
         include_directories(SYSTEM ${CMAKE_LDAP_INCLUDE_DIR})
@@ -991,6 +996,7 @@ if(NOT CURL_DISABLE_LDAP)
       list(APPEND CMAKE_REQUIRED_DEFINITIONS "-DLDAP_DEPRECATED=1")
       list(APPEND CMAKE_REQUIRED_LIBRARIES ${CMAKE_LDAP_LIB})
       set(CURL_LIBS "${CMAKE_LDAP_LIB};${CURL_LIBS}")
+      set(LIBCURL_PC_REQUIRES_PRIVATE "ldap;${LIBCURL_PC_REQUIRES_PRIVATE}")
       if(HAVE_LIBLBER)
         list(APPEND CMAKE_REQUIRED_LIBRARIES ${CMAKE_LBER_LIB})
         set(CURL_LIBS "${CMAKE_LBER_LIB};${CURL_LIBS}")
@@ -1172,30 +1178,32 @@ if(CURL_USE_GSSAPI)
       set(GSS_LDFLAGS "${GSS_LDFLAGS} -L\"${_dir}\"")
     endforeach()
 
-    check_include_file_concat("gssapi/gssapi.h" HAVE_GSSAPI_GSSAPI_H)
-    check_include_file_concat("gssapi/gssapi_generic.h" HAVE_GSSAPI_GSSAPI_GENERIC_H)
-    check_include_file_concat("gssapi/gssapi_krb5.h" HAVE_GSSAPI_GSSAPI_KRB5_H)
+    if(NOT GSS_FLAVOUR STREQUAL "GNU")
+      check_include_file_concat("gssapi/gssapi.h" HAVE_GSSAPI_GSSAPI_H)
+      check_include_file_concat("gssapi/gssapi_generic.h" HAVE_GSSAPI_GSSAPI_GENERIC_H)
 
-    if(GSS_FLAVOUR STREQUAL "MIT")
-      set(_include_list "")
-      if(HAVE_GSSAPI_GSSAPI_H)
-        list(APPEND _include_list "gssapi/gssapi.h")
-      endif()
-      if(HAVE_GSSAPI_GSSAPI_GENERIC_H)
-        list(APPEND _include_list "gssapi/gssapi_generic.h")
-      endif()
-      if(HAVE_GSSAPI_GSSAPI_KRB5_H)
-        list(APPEND _include_list "gssapi/gssapi_krb5.h")
-      endif()
+      if(GSS_FLAVOUR STREQUAL "MIT")
+        check_include_file_concat("gssapi/gssapi_krb5.h" _have_gssapi_gssapi_krb5_h)
+        set(_include_list "")
+        if(HAVE_GSSAPI_GSSAPI_H)
+          list(APPEND _include_list "gssapi/gssapi.h")
+        endif()
+        if(HAVE_GSSAPI_GSSAPI_GENERIC_H)
+          list(APPEND _include_list "gssapi/gssapi_generic.h")
+        endif()
+        if(_have_gssapi_gssapi_krb5_h)
+          list(APPEND _include_list "gssapi/gssapi_krb5.h")
+        endif()
 
-      if(NOT DEFINED HAVE_GSS_C_NT_HOSTBASED_SERVICE)
-        set(CMAKE_REQUIRED_FLAGS "${GSS_CFLAGS} ${GSS_LDFLAGS}")
-        set(CMAKE_REQUIRED_LIBRARIES ${GSS_LIBRARIES})
-        check_symbol_exists("GSS_C_NT_HOSTBASED_SERVICE" ${_include_list} HAVE_GSS_C_NT_HOSTBASED_SERVICE)
-        unset(CMAKE_REQUIRED_LIBRARIES)
-      endif()
-      if(NOT HAVE_GSS_C_NT_HOSTBASED_SERVICE)
-        set(HAVE_OLD_GSSMIT ON)
+        if(NOT DEFINED HAVE_GSS_C_NT_HOSTBASED_SERVICE)
+          set(CMAKE_REQUIRED_FLAGS "${GSS_CFLAGS} ${GSS_LDFLAGS}")
+          set(CMAKE_REQUIRED_LIBRARIES ${GSS_LIBRARIES})
+          check_symbol_exists("GSS_C_NT_HOSTBASED_SERVICE" ${_include_list} HAVE_GSS_C_NT_HOSTBASED_SERVICE)
+          unset(CMAKE_REQUIRED_LIBRARIES)
+        endif()
+        if(NOT HAVE_GSS_C_NT_HOSTBASED_SERVICE)
+          set(HAVE_OLD_GSSMIT ON)
+        endif()
       endif()
     endif()
 
@@ -1205,7 +1213,10 @@ if(CURL_USE_GSSAPI)
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${GSS_LDFLAGS}")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${GSS_LDFLAGS}")
     list(APPEND CURL_LIBS ${GSS_LIBRARIES})
-    if(GSS_FLAVOUR STREQUAL "MIT")
+    if(GSS_FLAVOUR STREQUAL "GNU")
+      set(HAVE_GSSGNU 1)
+      list(APPEND LIBCURL_PC_REQUIRES_PRIVATE "gss")
+    elseif(GSS_FLAVOUR STREQUAL "MIT")
       list(APPEND LIBCURL_PC_REQUIRES_PRIVATE "mit-krb5-gssapi")
     else()  # Heimdal
       list(APPEND LIBCURL_PC_REQUIRES_PRIVATE "heimdal-gssapi")
@@ -1416,6 +1427,7 @@ check_include_file_concat("locale.h"         HAVE_LOCALE_H)
 check_include_file_concat("net/if.h"         HAVE_NET_IF_H)
 check_include_file_concat("netdb.h"          HAVE_NETDB_H)
 check_include_file_concat("netinet/in.h"     HAVE_NETINET_IN_H)
+check_include_file_concat("netinet/in6.h"    HAVE_NETINET_IN6_H)
 check_include_file_concat("netinet/tcp.h"    HAVE_NETINET_TCP_H)
 check_include_file_concat("netinet/udp.h"    HAVE_NETINET_UDP_H)
 check_include_file("linux/tcp.h"      HAVE_LINUX_TCP_H)
@@ -1430,6 +1442,10 @@ check_include_file_concat("termio.h"         HAVE_TERMIO_H)
 check_include_file_concat("termios.h"        HAVE_TERMIOS_H)
 check_include_file_concat("unistd.h"         HAVE_UNISTD_H)
 check_include_file_concat("utime.h"          HAVE_UTIME_H)
+
+if(CMAKE_SYSTEM_NAME MATCHES "AmigaOS")
+  check_include_file_concat("proto/bsdsocket.h" HAVE_PROTO_BSDSOCKET_H)
+endif()
 
 check_type_size("size_t"      SIZEOF_SIZE_T)
 check_type_size("ssize_t"     SIZEOF_SSIZE_T)
@@ -1517,6 +1533,14 @@ check_symbol_exists("getrlimit"       "${CURL_INCLUDES}" HAVE_GETRLIMIT)
 check_symbol_exists("setlocale"       "${CURL_INCLUDES}" HAVE_SETLOCALE)
 check_symbol_exists("setmode"         "${CURL_INCLUDES}" HAVE_SETMODE)
 check_symbol_exists("setrlimit"       "${CURL_INCLUDES}" HAVE_SETRLIMIT)
+
+if(WIN32 OR CYGWIN)
+  check_function_exists("_setmode" HAVE__SETMODE)
+endif()
+
+if(CMAKE_SYSTEM_NAME MATCHES "AmigaOS")
+  check_symbol_exists("CloseSocket" "${CURL_INCLUDES}" HAVE_CLOSESOCKET_CAMEL)
+endif()
 
 if(NOT _ssl_enabled)
   check_symbol_exists("arc4random" "${CURL_INCLUDES};stdlib.h" HAVE_ARC4RANDOM)
@@ -2066,7 +2090,7 @@ if(NOT CURL_DISABLE_INSTALL)
     set(ENABLE_STATIC       "no")
   endif()
 
-  # Finally generate a "curl-config" matching this config.
+  # Generate a "curl-config" matching this config.
   # Consumed variables:
   #   CC
   #   CONFIGURE_OPTIONS
@@ -2096,11 +2120,12 @@ if(NOT CURL_DISABLE_INSTALL)
       GROUP_READ GROUP_EXECUTE
       WORLD_READ WORLD_EXECUTE)
 
-  # Finally generate a pkg-config file matching this config
+  # Generate a pkg-config file matching this config.
   # Consumed variables:
   #   CURLVERSION
   #   exec_prefix
   #   includedir
+  #   LDFLAGS
   #   LIBCURL_PC_CFLAGS
   #   LIBCURL_PC_CFLAGS_PRIVATE
   #   LIBCURL_PC_LIBS
