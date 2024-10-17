@@ -2369,6 +2369,7 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
     data->set.ssl.revoke_best_effort = !!(arg & CURLSSLOPT_REVOKE_BEST_EFFORT);
     data->set.ssl.native_ca_store = !!(arg & CURLSSLOPT_NATIVE_CA);
     data->set.ssl.auto_client_cert = !!(arg & CURLSSLOPT_AUTO_CLIENT_CERT);
+    data->set.ssl.earlydata = !!(arg & CURLSSLOPT_EARLYDATA);
     /* If a setting is added here it should also be added in dohprobe()
        which sets its own CURLOPT_SSL_OPTIONS based on these settings. */
     break;
@@ -3212,10 +3213,11 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
  */
 
 #undef curl_easy_setopt
-CURLcode curl_easy_setopt(struct Curl_easy *data, CURLoption tag, ...)
+CURLcode curl_easy_setopt(CURL *d, CURLoption tag, ...)
 {
   va_list arg;
   CURLcode result;
+  struct Curl_easy *data = d;
 
   if(!data)
     return CURLE_BAD_FUNCTION_ARGUMENT;
