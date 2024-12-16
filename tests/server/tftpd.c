@@ -512,21 +512,20 @@ skipit:
 
 static int synchnet(curl_socket_t f /* socket to flush */)
 {
-
-#if defined(HAVE_IOCTLSOCKET)
-  unsigned long i;
-#else
-  int i;
-#endif
   int j = 0;
   char rbuf[PKTSIZE];
   srvr_sockaddr_union_t fromaddr;
   curl_socklen_t fromaddrlen;
 
   for(;;) {
-#if defined(HAVE_IOCTLSOCKET)
+#if defined(HAVE_IOCTLSOCKET_CAMEL_FIONBIO)
+    long i;
+    (void) IoctlSocket(f, FIONBIO, &i);
+#elif defined(HAVE_IOCTLSOCKET)
+    unsigned long i;
     (void) ioctlsocket(f, FIONREAD, &i);
 #else
+    int i;
     (void) ioctl(f, FIONREAD, &i);
 #endif
     if(i) {
@@ -871,7 +870,7 @@ tftpd_cleanup:
 
   if(got_exit_signal) {
     logmsg("========> %s tftpd (port: %d pid: %ld) exits with signal (%d)",
-           ipv_inuse, (int)port, (long)getpid(), exit_signal);
+           ipv_inuse, (int)port, (long)Curl_getpid(), exit_signal);
     /*
      * To properly set the return status of the process we
      * must raise the same signal SIGINT or SIGTERM that we

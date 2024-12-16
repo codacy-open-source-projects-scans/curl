@@ -565,7 +565,10 @@ AC_DEFUN([CURL_CHECK_LIBS_LDAP], [
       else
         LIBS="$curl_cv_ldap_LIBS $curl_cv_save_LIBS"
       fi
-      LIBCURL_PC_REQUIRES_PRIVATE="ldap $LIBCURL_PC_REQUIRES_PRIVATE"
+      # FIXME: Enable when ldap was detected via pkg-config
+      if false; then
+        LIBCURL_PC_REQUIRES_PRIVATE="ldap $LIBCURL_PC_REQUIRES_PRIVATE"
+      fi
       AC_MSG_RESULT([$curl_cv_ldap_LIBS])
       ;;
   esac
@@ -1412,13 +1415,11 @@ AC_DEFUN([CURL_CHECK_WIN32_LARGEFILE], [
       AC_MSG_RESULT([yes (large file enabled)])
       AC_DEFINE_UNQUOTED(USE_WIN32_LARGE_FILES, 1,
         [Define to 1 if you are building a Windows target with large file support.])
-      AC_SUBST(USE_WIN32_LARGE_FILES, [1])
       ;;
     win32_small_files)
       AC_MSG_RESULT([yes (large file disabled)])
       AC_DEFINE_UNQUOTED(USE_WIN32_SMALL_FILES, 1,
         [Define to 1 if you are building a Windows target without large file support.])
-      AC_SUBST(USE_WIN32_SMALL_FILES, [1])
       ;;
     *)
       AC_MSG_RESULT([no])
@@ -1459,7 +1460,7 @@ AC_DEFUN([CURL_CHECK_WIN32_CRYPTO], [
       AC_MSG_RESULT([yes])
       AC_DEFINE_UNQUOTED(USE_WIN32_CRYPTO, 1,
         [Define to 1 if you are building a Windows target with crypto API support.])
-      AC_SUBST(USE_WIN32_CRYPTO, [1])
+      USE_WIN32_CRYPTO=1
       ;;
     *)
       AC_MSG_RESULT([no])
@@ -1562,6 +1563,8 @@ AC_DEFUN([CURL_PREPARE_BUILDINFO], [
   fi
   case $host_os in
     msys*) curl_pflags="${curl_pflags} MSYS";;
+    msdos*) curl_pflags="${curl_pflags} DOS";;
+    amiga*) curl_pflags="${curl_pflags} AMIGA";;
   esac
   if test "x$compiler_id" = 'xGNU_C'; then
     curl_pflags="${curl_pflags} GCC"

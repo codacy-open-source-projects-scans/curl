@@ -677,7 +677,7 @@ output_auth_headers(struct Curl_easy *data,
           auth, data->state.aptr.user ?
           data->state.aptr.user : "");
 #endif
-    authstatus->multipass = (!authstatus->done) ? TRUE : FALSE;
+    authstatus->multipass = !authstatus->done;
   }
   else
     authstatus->multipass = FALSE;
@@ -1229,163 +1229,6 @@ static const char *get_http_string(const struct Curl_easy *data,
 }
 #endif
 
-enum proxy_use {
-  HEADER_SERVER,  /* direct to server */
-  HEADER_PROXY,   /* regular request to proxy */
-  HEADER_CONNECT  /* sending CONNECT to a proxy */
-};
-
-static bool hd_name_eq(const char *n1, size_t n1len,
-                       const char *n2, size_t n2len)
-{
-  if(n1len == n2len) {
-    return strncasecompare(n1, n2, n1len);
-  }
-  return FALSE;
-}
-
-CURLcode Curl_dynhds_add_custom(struct Curl_easy *data,
-                                bool is_connect,
-                                struct dynhds *hds)
-{
-  struct connectdata *conn = data->conn;
-  char *ptr;
-  struct curl_slist *h[2];
-  struct curl_slist *headers;
-  int numlists = 1; /* by default */
-  int i;
-
-#ifndef CURL_DISABLE_PROXY
-  enum proxy_use proxy;
-
-  if(is_connect)
-    proxy = HEADER_CONNECT;
-  else
-    proxy = conn->bits.httpproxy && !conn->bits.tunnel_proxy ?
-      HEADER_PROXY : HEADER_SERVER;
-
-  switch(proxy) {
-  case HEADER_SERVER:
-    h[0] = data->set.headers;
-    break;
-  case HEADER_PROXY:
-    h[0] = data->set.headers;
-    if(data->set.sep_headers) {
-      h[1] = data->set.proxyheaders;
-      numlists++;
-    }
-    break;
-  case HEADER_CONNECT:
-    if(data->set.sep_headers)
-      h[0] = data->set.proxyheaders;
-    else
-      h[0] = data->set.headers;
-    break;
-  }
-#else
-  (void)is_connect;
-  h[0] = data->set.headers;
-#endif
-
-  /* loop through one or two lists */
-  for(i = 0; i < numlists; i++) {
-    for(headers = h[i]; headers; headers = headers->next) {
-      const char *name, *value;
-      size_t namelen, valuelen;
-
-      /* There are 2 quirks in place for custom headers:
-       * 1. setting only 'name:' to suppress a header from being sent
-       * 2. setting only 'name;' to send an empty (illegal) header
-       */
-      ptr = strchr(headers->data, ':');
-      if(ptr) {
-        name = headers->data;
-        namelen = ptr - headers->data;
-        ptr++; /* pass the colon */
-        while(*ptr && ISSPACE(*ptr))
-          ptr++;
-        if(*ptr) {
-          value = ptr;
-          valuelen = strlen(value);
-        }
-        else {
-          /* quirk #1, suppress this header */
-          continue;
-        }
-      }
-      else {
-        ptr = strchr(headers->data, ';');
-
-        if(!ptr) {
-          /* neither : nor ; in provided header value. We seem
-           * to ignore this silently */
-          continue;
-        }
-
-        name = headers->data;
-        namelen = ptr - headers->data;
-        ptr++; /* pass the semicolon */
-        while(*ptr && ISSPACE(*ptr))
-          ptr++;
-        if(!*ptr) {
-          /* quirk #2, send an empty header */
-          value = "";
-          valuelen = 0;
-        }
-        else {
-          /* this may be used for something else in the future,
-           * ignore this for now */
-          continue;
-        }
-      }
-
-      DEBUGASSERT(name && value);
-      if(data->state.aptr.host &&
-         /* a Host: header was sent already, do not pass on any custom Host:
-            header as that will produce *two* in the same request! */
-         hd_name_eq(name, namelen, STRCONST("Host:")))
-        ;
-      else if(data->state.httpreq == HTTPREQ_POST_FORM &&
-              /* this header (extended by formdata.c) is sent later */
-              hd_name_eq(name, namelen, STRCONST("Content-Type:")))
-        ;
-      else if(data->state.httpreq == HTTPREQ_POST_MIME &&
-              /* this header is sent later */
-              hd_name_eq(name, namelen, STRCONST("Content-Type:")))
-        ;
-      else if(data->req.authneg &&
-              /* while doing auth neg, do not allow the custom length since
-                 we will force length zero then */
-              hd_name_eq(name, namelen, STRCONST("Content-Length:")))
-        ;
-      else if(data->state.aptr.te &&
-              /* when asking for Transfer-Encoding, do not pass on a custom
-                 Connection: */
-              hd_name_eq(name, namelen, STRCONST("Connection:")))
-        ;
-      else if((conn->httpversion >= 20) &&
-              hd_name_eq(name, namelen, STRCONST("Transfer-Encoding:")))
-        /* HTTP/2 does not support chunked requests */
-        ;
-      else if((hd_name_eq(name, namelen, STRCONST("Authorization:")) ||
-               hd_name_eq(name, namelen, STRCONST("Cookie:"))) &&
-              /* be careful of sending this potentially sensitive header to
-                 other hosts */
-              !Curl_auth_allowed_to_host(data))
-        ;
-      else {
-        CURLcode result;
-
-        result = Curl_dynhds_add(hds, name, namelen, value, valuelen);
-        if(result)
-          return result;
-      }
-    }
-  }
-
-  return CURLE_OK;
-}
-
 CURLcode Curl_add_custom_headers(struct Curl_easy *data,
                                  bool is_connect,
 #ifndef USE_HYPER
@@ -1403,7 +1246,7 @@ CURLcode Curl_add_custom_headers(struct Curl_easy *data,
   int i;
 
 #ifndef CURL_DISABLE_PROXY
-  enum proxy_use proxy;
+  enum Curl_proxy_use proxy;
 
   if(is_connect)
     proxy = HEADER_CONNECT;
@@ -2259,7 +2102,7 @@ CURLcode Curl_http_cookies(struct Curl_easy *data,
         conn->handler->protocol&(CURLPROTO_HTTPS|CURLPROTO_WSS) ||
         strcasecompare("localhost", host) ||
         !strcmp(host, "127.0.0.1") ||
-        !strcmp(host, "::1") ? TRUE : FALSE;
+        !strcmp(host, "::1");
       Curl_share_lock(data, CURL_LOCK_DATA_COOKIE, CURL_LOCK_ACCESS_SINGLE);
       rc = Curl_cookie_getlist(data, data->cookies, host, data->state.up.path,
                                secure_context, &list);
@@ -3041,8 +2884,7 @@ CURLcode Curl_http_header(struct Curl_easy *data,
         char *persistentauth = Curl_copy_header_value(hd);
         if(!persistentauth)
           return CURLE_OUT_OF_MEMORY;
-        negdata->noauthpersist = checkprefix("false", persistentauth) ?
-          TRUE : FALSE;
+        negdata->noauthpersist = !!checkprefix("false", persistentauth);
         negdata->havenoauthpersist = TRUE;
         infof(data, "Negotiate: noauthpersist -> %d, header part: %s",
               negdata->noauthpersist, persistentauth);
@@ -3061,7 +2903,7 @@ CURLcode Curl_http_header(struct Curl_easy *data,
       (void)curlx_strtoofft(v, NULL, 10, &retry_after);
       if(!retry_after) {
         time_t date = Curl_getdate_capped(v);
-        if(-1 != date)
+        if((time_t)-1 != date)
           /* convert date to number of seconds into the future */
           retry_after = date - time(NULL);
       }
@@ -3083,7 +2925,7 @@ CURLcode Curl_http_header(struct Curl_easy *data,
         conn->handler->protocol&(CURLPROTO_HTTPS|CURLPROTO_WSS) ||
         strcasecompare("localhost", host) ||
         !strcmp(host, "127.0.0.1") ||
-        !strcmp(host, "::1") ? TRUE : FALSE;
+        !strcmp(host, "::1");
 
       Curl_share_lock(data, CURL_LOCK_DATA_COOKIE,
                       CURL_LOCK_ACCESS_SINGLE);
@@ -4544,7 +4386,7 @@ static void http_exp100_send_anyway(struct Curl_easy *data)
 bool Curl_http_exp100_is_selected(struct Curl_easy *data)
 {
   struct Curl_creader *r = Curl_creader_get_by_type(data, &cr_exp100);
-  return r ? TRUE : FALSE;
+  return !!r;
 }
 
 #endif /* CURL_DISABLE_HTTP */

@@ -36,6 +36,12 @@ the environment variable is not set, use --variable %name=content or
 --variable %name@content. Note that on some systems - but not all -
 environment variables are case insensitive.
 
+To assign a variable using contents from another variable, use
+--expand-variable. Like for example assigning a new variable using contents
+from two other:
+
+    curl --expand-variable "user={{firstname}} {{lastname}}"
+
 When expanding variables, curl supports a set of functions that can make the
 variable contents more convenient to use. You apply a function to a variable
 expansion by adding a colon and then list the desired functions in a
@@ -48,11 +54,27 @@ Available functions:
 ## trim
 removes all leading and trailing white space.
 
+Example:
+
+    curl --expand-url https.//example.com/{{url:trim}}
+
 ## json
 outputs the content using JSON string quoting rules.
+
+Example:
+
+    curl --expand-data {{data:json}} https://example.com
 
 ## url
 shows the content URL (percent) encoded.
 
+Example:
+
+    curl --expand-url https://example.com/{{path:url}}
+
 ## b64
 expands the variable base64 encoded
+
+Example:
+
+    curl --expand-url https://example.com/{{var:b64}}

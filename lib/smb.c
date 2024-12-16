@@ -27,12 +27,6 @@
 
 #if !defined(CURL_DISABLE_SMB) && defined(USE_CURL_NTLM_CORE)
 
-#ifdef _WIN32
-#define Curl_getpid() ((unsigned int)GetCurrentProcessId())
-#else
-#define Curl_getpid() ((unsigned int)getpid())
-#endif
-
 #include "smb.h"
 #include "urldata.h"
 #include "sendf.h"
@@ -548,7 +542,7 @@ static void smb_format_message(struct Curl_easy *data, struct smb_header *h,
   h->flags2 = smb_swap16(SMB_FLAGS2_IS_LONG_NAME | SMB_FLAGS2_KNOWS_LONG_NAME);
   h->uid = smb_swap16(smbc->uid);
   h->tid = smb_swap16(req->tid);
-  pid = Curl_getpid();
+  pid = (unsigned int)Curl_getpid();
   h->pid_high = smb_swap16((unsigned short)(pid >> 16));
   h->pid = smb_swap16((unsigned short) pid);
 }
@@ -633,7 +627,7 @@ static CURLcode smb_send_setup(struct Curl_easy *data)
 
   const size_t byte_count = sizeof(lm) + sizeof(nt) +
     strlen(smbc->user) + strlen(smbc->domain) +
-    strlen(OS) + strlen(CLIENTNAME) + 4; /* 4 null chars */
+    strlen(CURL_OS) + strlen(CLIENTNAME) + 4; /* 4 null chars */
   if(byte_count > sizeof(msg.bytes))
     return CURLE_FILESIZE_EXCEEDED;
 
@@ -661,7 +655,7 @@ static CURLcode smb_send_setup(struct Curl_easy *data)
                  "%s%c"  /* domain */
                  "%s%c"  /* OS */
                  "%s", /* client name */
-                 smbc->user, 0, smbc->domain, 0, OS, 0, CLIENTNAME);
+                 smbc->user, 0, smbc->domain, 0, CURL_OS, 0, CLIENTNAME);
   p++; /* count the final null termination */
   DEBUGASSERT(byte_count == (size_t)(p - msg.bytes));
   msg.byte_count = smb_swap16((unsigned short)byte_count);

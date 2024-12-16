@@ -33,7 +33,7 @@
 
 /* FIXME: Delete this once the warnings have been fixed. */
 #if !defined(CURL_WARN_SIGN_CONVERSION)
-#ifdef __GNUC__
+#if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic ignored "-Wsign-conversion"
 #endif
 #endif
@@ -43,7 +43,7 @@
 #include <_mingw.h>
 #endif
 
-/* Workaround for Homebrew gcc 12.4.0, 13.3.0, 14.1.0 and newer (as of 14.1.0)
+/* Workaround for Homebrew gcc 12.4.0, 13.3.0, 14.1.0, 14.2.0 (initial build)
    that started advertising the `availability` attribute, which then gets used
    by Apple SDK, but, in a way incompatible with gcc, resulting in misc errors
    inside SDK headers, e.g.:
@@ -51,13 +51,16 @@
             definition
      error: expected ',' or '}' before
    Followed by missing declarations.
-   Fix it by overriding the built-in feature-check macro used by the headers
-   to enable the problematic attributes. This makes the feature check fail. */
-#if defined(__APPLE__) &&                \
-  !defined(__clang__) &&                 \
-  defined(__GNUC__) && __GNUC__ >= 12 && \
+   Work it around by overriding the built-in feature-check macro used by the
+   headers to enable the problematic attributes. This makes the feature check
+   fail. Fixed in 14.2.0_1. Disable the workaround if the fix is detected. */
+#if defined(__APPLE__) && !defined(__clang__) && defined(__GNUC__) && \
   defined(__has_attribute)
-#define availability curl_pp_attribute_disabled
+#  if !defined(__has_feature)
+#    define availability curl_pp_attribute_disabled
+#  elif !__has_feature(attribute_availability)
+#    define availability curl_pp_attribute_disabled
+#  endif
 #endif
 
 #if defined(__APPLE__)
@@ -146,20 +149,12 @@
 #  include "config-riscos.h"
 #endif
 
-#ifdef __AMIGA__
-#  include "config-amigaos.h"
-#endif
-
 #ifdef __OS400__
 #  include "config-os400.h"
 #endif
 
 #ifdef __PLAN9__
 #  include "config-plan9.h"
-#endif
-
-#ifdef MSDOS
-#  include "config-dos.h"
 #endif
 
 #endif /* HAVE_CONFIG_H */
@@ -287,6 +282,14 @@
 #  define CURL_DISABLE_HTTP_AUTH 1
 #endif
 
+/*
+ * ECH requires HTTPSRR.
+ */
+
+#if defined(USE_ECH) && !defined(USE_HTTPSRR)
+#  define USE_HTTPSRR
+#endif
+
 /* ================================================================ */
 /* No system header file shall be included in this file before this */
 /* point.                                                           */
@@ -388,11 +391,8 @@
 #  include <lwip/netdb.h>
 #endif
 
-#ifdef HAVE_EXTRA_STRICMP_H
+#ifdef macintosh
 #  include <extra/stricmp.h>
-#endif
-
-#ifdef HAVE_EXTRA_STRDUP_H
 #  include <extra/strdup.h>
 #endif
 
@@ -454,6 +454,12 @@
 #include <curl/stdcheaders.h>
 #endif
 
+#ifdef _WIN32
+#define Curl_getpid() GetCurrentProcessId()
+#else
+#define Curl_getpid() getpid()
+#endif
+
 /*
  * Large file (>2Gb) support using Win32 functions.
  */
@@ -475,6 +481,14 @@
    int curlx_win32_open(const char *filename, int oflag, ...);
    int curlx_win32_stat(const char *path, struct_stat *buffer);
    FILE *curlx_win32_fopen(const char *filename, const char *mode);
+#endif
+
+#ifdef __DJGPP__
+/* Requires DJGPP 2.04 */
+#  include <unistd.h>
+#  undef  lseek
+#  define lseek(fdes,offset,whence)  llseek(fdes, offset, whence)
+#  define LSEEK_ERROR                (offset_t)-1
 #endif
 
 /*
@@ -894,6 +908,8 @@ endings either CRLF or LF so 't' is appropriate.
 #    define CURL_SA_FAMILY_T sa_family_t
 #  elif defined(HAVE_ADDRESS_FAMILY)
 #    define CURL_SA_FAMILY_T ADDRESS_FAMILY
+#  elif defined(__AMIGA__)
+#    define CURL_SA_FAMILY_T unsigned char
 #  else
 /* use a sensible default */
 #    define CURL_SA_FAMILY_T unsigned short
@@ -966,26 +982,27 @@ int getpwuid_r(uid_t uid, struct passwd *pwd, char *buf,
 #define OPENSSL_SUPPRESS_DEPRECATED
 #endif
 
-#if defined(inline)
-  /* 'inline' is defined as macro and assumed to be correct */
-  /* No need for 'inline' replacement */
+#if defined(CURL_INLINE)
+/* 'CURL_INLINE' defined, use as-is */
+#elif defined(inline)
+#  define CURL_INLINE inline /* 'inline' defined, assumed correct */
 #elif defined(__cplusplus)
-  /* The code is compiled with C++ compiler.
-     C++ always supports 'inline'. */
-  /* No need for 'inline' replacement */
+/* The code is compiled with C++ compiler.
+   C++ always supports 'inline'. */
+#  define CURL_INLINE inline /* 'inline' keyword supported */
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901
-  /* C99 (and later) supports 'inline' keyword */
-  /* No need for 'inline' replacement */
+/* C99 (and later) supports 'inline' keyword */
+#  define CURL_INLINE inline /* 'inline' keyword supported */
 #elif defined(__GNUC__) && __GNUC__ >= 3
-  /* GCC supports '__inline__' as an extension */
-#  define inline __inline__
+/* GCC supports '__inline__' as an extension */
+#  define CURL_INLINE __inline__
 #elif defined(_MSC_VER) && _MSC_VER >= 1400
-  /* MSC supports '__inline' from VS 2005 (or even earlier) */
-#  define inline __inline
+/* MSC supports '__inline' from VS 2005 (or even earlier) */
+#  define CURL_INLINE __inline
 #else
-  /* Probably 'inline' is not supported by compiler.
-     Define to the empty string to be on the safe side. */
-#  define inline /* empty */
+/* Probably 'inline' is not supported by compiler.
+   Define to the empty string to be on the safe side. */
+#  define CURL_INLINE /* empty */
 #endif
 
 #endif /* HEADER_CURL_SETUP_H */

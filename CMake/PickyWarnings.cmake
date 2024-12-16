@@ -23,10 +23,11 @@
 ###########################################################################
 include(CheckCCompilerFlag)
 
-unset(_picky)
+set(_picky "")
 
 if(CURL_WERROR AND
    ((CMAKE_COMPILER_IS_GNUCC AND
+     NOT DOS AND  # Watt-32 headers use the '#include_next' GCC extension
      NOT CMAKE_C_COMPILER_VERSION VERSION_LESS 5.0 AND
      NOT CMAKE_VERSION VERSION_LESS 3.23.0) OR  # to avoid check_symbol_exists() conflicting with GCC -pedantic-errors
    CMAKE_C_COMPILER_ID MATCHES "Clang"))
@@ -130,15 +131,19 @@ if(PICKY_COMPILER)
         ${_picky_common_old}
         -Wshift-sign-overflow              # clang  2.9
         -Wshorten-64-to-32                 # clang  1.0
-        -Wlanguage-extension-token         # clang  3.0
         -Wformat=2                         # clang  3.0  gcc  4.8
       )
+      if(NOT MSVC)
+        list(APPEND _picky_enable
+          -Wlanguage-extension-token       # clang  3.0
+        )
+      endif()
       # Enable based on compiler version
       if((CMAKE_C_COMPILER_ID STREQUAL "Clang"      AND NOT CMAKE_C_COMPILER_VERSION VERSION_LESS 3.6) OR
          (CMAKE_C_COMPILER_ID STREQUAL "AppleClang" AND NOT CMAKE_C_COMPILER_VERSION VERSION_LESS 6.3))
         list(APPEND _picky_enable
           ${_picky_common}
-          -Wunreachable-code-break         # clang  3.5            appleclang  6.0
+        # -Wunreachable-code-break         # clang  3.5            appleclang  6.0  # Not used: Silent in "unity" builds
           -Wheader-guard                   # clang  3.4            appleclang  5.1
           -Wsometimes-uninitialized        # clang  3.2            appleclang  4.6
         )
@@ -240,19 +245,22 @@ endif()
 
 # clang-cl
 if(CMAKE_C_COMPILER_ID STREQUAL "Clang" AND MSVC)
-  if(CMAKE_VERSION VERSION_LESS 3.12)
-    set(_picky_tmp "")
-    foreach(_ccopt IN LISTS _picky)
+  list(APPEND _picky "-Wno-language-extension-token")  # Allow __int64
+
+  set(_picky_tmp "")
+  foreach(_ccopt IN LISTS _picky)
+    # Prefix -Wall, otherwise clang-cl interprets it as an MSVC option and translates it to -Weverything
+    if(_ccopt MATCHES "^-W" AND NOT _ccopt STREQUAL "-Wall")
+      list(APPEND _picky_tmp ${_ccopt})
+    else()
       list(APPEND _picky_tmp "/clang:${_ccopt}")
-    endforeach()
-    set(_picky ${_picky_tmp})
-  else()
-    list(TRANSFORM _picky PREPEND "/clang:")
-  endif()
+    endif()
+  endforeach()
+  set(_picky ${_picky_tmp})
 endif()
 
 if(_picky)
   string(REPLACE ";" " " _picky "${_picky}")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_picky}")
-  message(STATUS "Picky compiler options:${_picky}")
+  message(STATUS "Picky compiler options: ${_picky}")
 endif()

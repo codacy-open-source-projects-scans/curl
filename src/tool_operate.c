@@ -145,7 +145,6 @@ static bool is_fatal_error(CURLcode code)
   case CURLE_FAILED_INIT:
   case CURLE_OUT_OF_MEMORY:
   case CURLE_UNKNOWN_OPTION:
-  case CURLE_FUNCTION_NOT_FOUND:
   case CURLE_BAD_FUNCTION_ARGUMENT:
     /* critical error */
     return TRUE;
@@ -677,7 +676,7 @@ static CURLcode post_per_transfer(struct GlobalConfig *global,
               outs->bytes);
         fflush(outs->stream);
         /* truncate file at the position where we started appending */
-#ifdef HAVE_FTRUNCATE
+#if defined(HAVE_FTRUNCATE) && !defined(__DJGPP__) && !defined(__AMIGA__)
         if(ftruncate(fileno(outs->stream), outs->init)) {
           /* when truncate fails, we cannot just append as then we will
              create something strange, bail out */
@@ -776,50 +775,51 @@ skip:
 }
 
 /*
- * Return the protocol token for the scheme used in the given URL
+ * Possibly rewrite the URL for IPFS and return the protocol token for the
+ * scheme used in the given URL.
  */
-static CURLcode url_proto(char **url,
-                          struct OperationConfig *config,
-                          const char **scheme)
+static CURLcode url_proto_and_rewrite(char **url,
+                                      struct OperationConfig *config,
+                                      const char **scheme)
 {
   CURLcode result = CURLE_OK;
   CURLU *uh = curl_url();
   const char *proto = NULL;
   *scheme = NULL;
 
+  DEBUGASSERT(url && *url);
   if(uh) {
-    if(*url) {
-      char *schemep = NULL;
-
-      if(!curl_url_set(uh, CURLUPART_URL, *url,
-                       CURLU_GUESS_SCHEME | CURLU_NON_SUPPORT_SCHEME) &&
-         !curl_url_get(uh, CURLUPART_SCHEME, &schemep,
-                       CURLU_DEFAULT_SCHEME)) {
+    char *schemep = NULL;
+    if(!curl_url_set(uh, CURLUPART_URL, *url,
+                     CURLU_GUESS_SCHEME | CURLU_NON_SUPPORT_SCHEME) &&
+       !curl_url_get(uh, CURLUPART_SCHEME, &schemep,
+                     CURLU_DEFAULT_SCHEME)) {
 #ifdef CURL_DISABLE_IPFS
-        (void)config;
+      (void)config;
 #else
-        if(curl_strequal(schemep, proto_ipfs) ||
-           curl_strequal(schemep, proto_ipns)) {
-          result = ipfs_url_rewrite(uh, schemep, url, config);
-          /* short-circuit proto_token, we know it is ipfs or ipns */
-          if(curl_strequal(schemep, proto_ipfs))
-            proto = proto_ipfs;
-          else if(curl_strequal(schemep, proto_ipns))
-            proto = proto_ipns;
-          if(result)
-            config->synthetic_error = TRUE;
-        }
-        else
-#endif /* !CURL_DISABLE_IPFS */
-          proto = proto_token(schemep);
-
-        curl_free(schemep);
+      if(curl_strequal(schemep, proto_ipfs) ||
+         curl_strequal(schemep, proto_ipns)) {
+        result = ipfs_url_rewrite(uh, schemep, url, config);
+        /* short-circuit proto_token, we know it is ipfs or ipns */
+        if(curl_strequal(schemep, proto_ipfs))
+          proto = proto_ipfs;
+        else if(curl_strequal(schemep, proto_ipns))
+          proto = proto_ipns;
+        if(result)
+          config->synthetic_error = TRUE;
       }
+      else
+#endif /* !CURL_DISABLE_IPFS */
+        proto = proto_token(schemep);
+
+      curl_free(schemep);
     }
     curl_url_cleanup(uh);
   }
+  else
+    result = CURLE_OUT_OF_MEMORY;
 
-  *scheme = (char *) (proto ? proto : "???"); /* Never match if not found. */
+  *scheme = proto ? proto : "?"; /* Never match if not found. */
   return result;
 }
 
@@ -885,7 +885,7 @@ static CURLcode config2setopts(struct GlobalConfig *global,
                                CURLSH *share)
 {
   const char *use_proto;
-  CURLcode result = url_proto(&per->url, config, &use_proto);
+  CURLcode result = url_proto_and_rewrite(&per->url, config, &use_proto);
 
   /* Avoid having this setopt added to the --libcurl source output. */
   if(!result)
@@ -1168,6 +1168,22 @@ static CURLcode config2setopts(struct GlobalConfig *global,
     /* new in libcurl 7.56.0 */
     if(config->ssh_compression)
       my_setopt(curl, CURLOPT_SSH_COMPRESSION, 1L);
+
+    if(!config->insecure_ok) {
+      char *known = findfile(".ssh/known_hosts", FALSE);
+      if(known) {
+        /* new in curl 7.19.6 */
+        result = res_setopt_str(curl, CURLOPT_SSH_KNOWNHOSTS, known);
+        curl_free(known);
+        if(result == CURLE_UNKNOWN_OPTION)
+          /* libssh2 version older than 1.1.1 */
+          result = CURLE_OK;
+        if(result)
+          return result;
+      }
+      else
+        warnf(global, "Couldn't find a known_hosts file");
+    }
   }
 
   if(config->cacert)
@@ -1342,23 +1358,6 @@ static CURLcode config2setopts(struct GlobalConfig *global,
 
   if(config->path_as_is)
     my_setopt(curl, CURLOPT_PATH_AS_IS, 1L);
-
-  if((use_proto == proto_scp || use_proto == proto_sftp) &&
-     !config->insecure_ok) {
-    char *known = findfile(".ssh/known_hosts", FALSE);
-    if(known) {
-      /* new in curl 7.19.6 */
-      result = res_setopt_str(curl, CURLOPT_SSH_KNOWNHOSTS, known);
-      curl_free(known);
-      if(result == CURLE_UNKNOWN_OPTION)
-        /* libssh2 version older than 1.1.1 */
-        result = CURLE_OK;
-      if(result)
-        return result;
-    }
-    else
-      warnf(global, "Couldn't find a known_hosts file");
-  }
 
   if(config->no_body || config->remote_time) {
     /* no body or use remote time */
@@ -1941,12 +1940,9 @@ static CURLcode single_transfer(struct GlobalConfig *global,
 
         /* open file for reading: */
         FILE *file = fopen(config->etag_compare_file, FOPEN_READTEXT);
-        if(!file && !config->etag_save_file) {
-          errorf(global,
-                 "Failed to open %s", config->etag_compare_file);
-          result = CURLE_READ_ERROR;
-          break;
-        }
+        if(!file)
+          warnf(global, "Failed to open %s: %s", config->etag_compare_file,
+                strerror(errno));
 
         if((PARAM_OK == file2string(&etag_from_file, file)) &&
            etag_from_file) {
@@ -2456,7 +2452,7 @@ static CURLcode add_parallel_transfers(struct GlobalConfig *global,
     all_added++;
     *addedp = TRUE;
   }
-  *morep = (per || sleeping) ? TRUE : FALSE;
+  *morep = (per || sleeping);
   return CURLE_OK;
 }
 
@@ -2885,6 +2881,17 @@ static CURLcode serial_transfers(struct GlobalConfig *global,
       if(getenv("CURL_FORBID_REUSE"))
         (void)curl_easy_setopt(per->curl, CURLOPT_FORBID_REUSE, 1L);
 
+      if(global->test_duphandle) {
+        CURL *dup = curl_easy_duphandle(per->curl);
+        curl_easy_cleanup(per->curl);
+        per->curl = dup;
+        if(!dup) {
+          result = CURLE_OUT_OF_MEMORY;
+          break;
+        }
+        /* a duplicate needs the share re-added */
+        (void)curl_easy_setopt(per->curl, CURLOPT_SHARE, share);
+      }
       if(global->test_event_based)
         result = curl_easy_perform_ev(per->curl);
       else

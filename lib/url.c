@@ -651,13 +651,13 @@ bool Curl_on_disconnect(struct Curl_easy *data,
 }
 
 /*
- * Curl_xfer_may_multiplex()
+ * xfer_may_multiplex()
  *
  * Return a TRUE, iff the transfer can be done over an (appropriate)
  * multiplexed connection.
  */
-static bool Curl_xfer_may_multiplex(const struct Curl_easy *data,
-                                    const struct connectdata *conn)
+static bool xfer_may_multiplex(const struct Curl_easy *data,
+                               const struct connectdata *conn)
 {
   /* If an HTTP protocol and multiplexing is enabled */
   if((conn->handler->protocol & PROTO_FAMILY_HTTP) &&
@@ -1248,7 +1248,7 @@ ConnectionExists(struct Curl_easy *data,
   memset(&match, 0, sizeof(match));
   match.data = data;
   match.needle = needle;
-  match.may_multiplex = Curl_xfer_may_multiplex(data, needle);
+  match.may_multiplex = xfer_may_multiplex(data, needle);
 
 #ifdef USE_NTLM
   match.want_ntlm_http = ((data->state.authhost.want & CURLAUTH_NTLM) &&
@@ -1343,22 +1343,19 @@ static struct connectdata *allocate_conn(struct Curl_easy *data)
   /* note that these two proxy bits are now just on what looks to be
      requested, they may be altered down the road */
   conn->bits.proxy = (data->set.str[STRING_PROXY] &&
-                      *data->set.str[STRING_PROXY]) ? TRUE : FALSE;
+                      *data->set.str[STRING_PROXY]);
   conn->bits.httpproxy = (conn->bits.proxy &&
                           (conn->http_proxy.proxytype == CURLPROXY_HTTP ||
                            conn->http_proxy.proxytype == CURLPROXY_HTTP_1_0 ||
-                           IS_HTTPS_PROXY(conn->http_proxy.proxytype))) ?
-    TRUE : FALSE;
-  conn->bits.socksproxy = (conn->bits.proxy &&
-                           !conn->bits.httpproxy) ? TRUE : FALSE;
+                           IS_HTTPS_PROXY(conn->http_proxy.proxytype)));
+  conn->bits.socksproxy = (conn->bits.proxy && !conn->bits.httpproxy);
 
   if(data->set.str[STRING_PRE_PROXY] && *data->set.str[STRING_PRE_PROXY]) {
     conn->bits.proxy = TRUE;
     conn->bits.socksproxy = TRUE;
   }
 
-  conn->bits.proxy_user_passwd =
-    (data->state.aptr.proxyuser) ? TRUE : FALSE;
+  conn->bits.proxy_user_passwd = !!data->state.aptr.proxyuser;
   conn->bits.tunnel_proxy = data->set.tunnel_thru_httpproxy;
 #endif /* CURL_DISABLE_PROXY */
 
@@ -1830,7 +1827,7 @@ static CURLcode parseurlandfillconn(struct Curl_easy *data,
   /* HSTS upgrade */
   if(data->hsts && strcasecompare("http", data->state.up.scheme)) {
     /* This MUST use the IDN decoded name */
-    if(Curl_hsts(data->hsts, conn->host.name, TRUE)) {
+    if(Curl_hsts(data->hsts, conn->host.name, strlen(conn->host.name), TRUE)) {
       char *url;
       Curl_safefree(data->state.up.scheme);
       uc = curl_url_set(uh, CURLUPART_SCHEME, "https", 0);
@@ -1961,10 +1958,10 @@ static CURLcode setup_range(struct Curl_easy *data)
     else
       s->range = strdup(data->set.str[STRING_SET_RANGE]);
 
-    s->rangestringalloc = (s->range) ? TRUE : FALSE;
-
     if(!s->range)
       return CURLE_OUT_OF_MEMORY;
+
+    s->rangestringalloc = TRUE;
 
     /* tell ourselves to fetch this range */
     s->use_range = TRUE;        /* enable range download */
@@ -2654,6 +2651,17 @@ static CURLcode parse_remote_port(struct Curl_easy *data,
   return CURLE_OK;
 }
 
+static bool str_has_ctrl(const char *input)
+{
+  const unsigned char *str = (const unsigned char *)input;
+  while(*str) {
+    if(*str < 0x20)
+      return TRUE;
+    str++;
+  }
+  return FALSE;
+}
+
 /*
  * Override the login details from the URL with that in the CURLOPT_USERPWD
  * option or a .netrc file, if applicable.
@@ -2685,29 +2693,40 @@ static CURLcode override_login(struct Curl_easy *data,
 
     if(data->state.aptr.user &&
        (data->state.creds_from != CREDS_NETRC)) {
-      /* there was a username in the URL. Use the URL decoded version */
+      /* there was a username with a length in the URL. Use the URL decoded
+         version */
       userp = &data->state.aptr.user;
       url_provided = TRUE;
     }
 
-    ret = Curl_parsenetrc(&data->state.netrc, conn->host.name,
-                          userp, passwdp,
-                          data->set.str[STRING_NETRC_FILE]);
-    if(ret > 0) {
-      infof(data, "Couldn't find host %s in the %s file; using defaults",
-            conn->host.name,
-            (data->set.str[STRING_NETRC_FILE] ?
-             data->set.str[STRING_NETRC_FILE] : ".netrc"));
-    }
-    else if(ret < 0) {
-      failf(data, ".netrc parser error");
-      return CURLE_READ_ERROR;
-    }
-    else {
-      /* set bits.netrc TRUE to remember that we got the name from a .netrc
-         file, so that it is safe to use even if we followed a Location: to a
-         different host or similar. */
-      conn->bits.netrc = TRUE;
+    if(!*passwdp) {
+      ret = Curl_parsenetrc(&data->state.netrc, conn->host.name,
+                            userp, passwdp,
+                            data->set.str[STRING_NETRC_FILE]);
+      if(ret > 0) {
+        infof(data, "Couldn't find host %s in the %s file; using defaults",
+              conn->host.name,
+              (data->set.str[STRING_NETRC_FILE] ?
+               data->set.str[STRING_NETRC_FILE] : ".netrc"));
+      }
+      else if(ret < 0) {
+        failf(data, ".netrc parser error");
+        return CURLE_READ_ERROR;
+      }
+      else {
+        if(!(conn->handler->flags&PROTOPT_USERPWDCTRL)) {
+          /* if the protocol can't handle control codes in credentials, make
+             sure there are none */
+          if(str_has_ctrl(*userp) || str_has_ctrl(*passwdp)) {
+            failf(data, "control code detected in .netrc credentials");
+            return CURLE_READ_ERROR;
+          }
+        }
+        /* set bits.netrc TRUE to remember that we got the name from a .netrc
+           file, so that it is safe to use even if we followed a Location: to a
+           different host or similar. */
+        conn->bits.netrc = TRUE;
+      }
     }
     if(url_provided) {
       Curl_safefree(conn->user);

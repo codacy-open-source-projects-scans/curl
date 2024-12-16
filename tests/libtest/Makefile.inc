@@ -33,6 +33,9 @@ WARNLESS = ../../lib/warnless.c ../../lib/warnless.h
 # files used only in some libcurl test programs
 MULTIBYTE = ../../lib/curl_multibyte.c ../../lib/curl_multibyte.h
 
+# files used only in some libcurl test programs
+INET_PTON = ../../lib/inet_pton.c ../../lib/inet_pton.h
+
 # these files are used in every single test program below
 TIMEDIFF = ../../lib/timediff.c ../../lib/timediff.h
 FIRSTFILES = first.c first.h
@@ -77,7 +80,7 @@ LIBTESTPROGS = libauthretry libntlmconnect libprereq                     \
  lib1945 lib1946 lib1947 lib1948 lib1955 lib1956 lib1957 lib1958 lib1959 \
  lib1960 lib1964 \
  lib1970 lib1971 lib1972 lib1973 lib1974 lib1975 \
- lib2301 lib2302 lib2304 lib2305 lib2306         lib2308 \
+ lib2301 lib2302 lib2304 lib2305 lib2306         lib2308 lib2309 \
  lib2402 lib2404 lib2405 \
  lib2502 \
  lib3010 lib3025 lib3026 lib3027 \
@@ -641,7 +644,7 @@ lib1958_LDADD = $(TESTUTIL_LIBS)
 lib1959_SOURCES = lib1959.c $(SUPPORTFILES) $(TESTUTIL) $(WARNLESS)
 lib1959_LDADD = $(TESTUTIL_LIBS)
 
-lib1960_SOURCES = lib1960.c $(SUPPORTFILES)
+lib1960_SOURCES = lib1960.c $(SUPPORTFILES) $(INET_PTON)
 lib1960_LDADD = $(TESTUTIL_LIBS)
 
 lib1964_SOURCES = lib1964.c $(SUPPORTFILES) $(TESTUTIL) $(WARNLESS)
@@ -682,6 +685,9 @@ lib2306_LDADD = $(TESTUTIL_LIBS)
 
 lib2308_SOURCES = lib2308.c $(SUPPORTFILES)
 lib2308_LDADD = $(TESTUTIL_LIBS)
+
+lib2309_SOURCES = lib2309.c $(SUPPORTFILES)
+lib2309_LDADD = $(TESTUTIL_LIBS)
 
 lib2402_SOURCES = lib2402.c $(SUPPORTFILES) $(TESTUTIL) $(WARNLESS)
 lib2402_LDADD = $(TESTUTIL_LIBS)

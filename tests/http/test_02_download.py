@@ -572,7 +572,7 @@ class TestDownload:
         assert r.total_connects == 1, r.dump_logs()
 
     # download parallel with h2 "Upgrade:"
-    def test_02_31_parallel_upgrade(self, env: Env, httpd):
+    def test_02_31_parallel_upgrade(self, env: Env, httpd, nghttpx):
         count = 3
         curl = CurlClient(env=env)
         urln = f'http://{env.domain1}:{env.http_port}/data.json?[0-{count-1}]'
@@ -599,7 +599,6 @@ class TestDownload:
         port = env.port_for(proto)
         if proto != 'h3':
             port = env.nghttpx_https_port
-        # url = f'https://{env.domain1}:{env.port_for(proto)}/{docname}'
         url = f'https://{env.domain1}:{port}/{docname}'
         client = LocalClient(name='hx-download', env=env)
         if not client.exists():
@@ -634,3 +633,28 @@ class TestDownload:
         elif proto == 'h3':
             # not implemented
             assert earlydata[1] == 0, f'{earlydata}'
+
+    @pytest.mark.parametrize("proto", ['http/1.1', 'h2'])
+    @pytest.mark.parametrize("max_host_conns", [0, 1, 5])
+    def test_02_33_max_host_conns(self, env: Env, httpd, nghttpx, proto, max_host_conns):
+        if proto == 'h3' and not env.have_h3():
+            pytest.skip("h3 not supported")
+        count = 100
+        max_parallel = 100
+        docname = 'data-10k'
+        port = env.port_for(proto)
+        url = f'https://{env.domain1}:{port}/{docname}'
+        client = LocalClient(name='hx-download', env=env)
+        if not client.exists():
+            pytest.skip(f'example client not built: {client.name}')
+        r = client.run(args=[
+             '-n', f'{count}',
+             '-m', f'{max_parallel}',
+             '-x',  # always use a fresh connection
+             '-M',  str(max_host_conns),  # limit conns per host
+             '-r', f'{env.domain1}:{port}:127.0.0.1',
+             '-V', proto, url
+        ])
+        r.check_exit_code(0)
+        srcfile = os.path.join(httpd.docs_dir, docname)
+        self.check_downloads(client, srcfile, count)

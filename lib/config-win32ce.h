@@ -41,9 +41,6 @@
 /* Define if you have the <io.h> header file.  */
 #define HAVE_IO_H 1
 
-/* Define if you need the malloc.h header file even with stdlib.h  */
-#define NEED_MALLOC_H 1
-
 /* Define if you have the <netdb.h> header file.  */
 /* #define HAVE_NETDB_H 1 */
 
@@ -271,8 +268,8 @@
 /* ---------------------------------------------------------------- */
 
 /* Define cpu-machine-OS */
-#ifndef OS
-#define OS "i386-pc-win32ce"
+#ifndef CURL_OS
+#define CURL_OS "i386-pc-win32ce"
 #endif
 
 /* Name of package */

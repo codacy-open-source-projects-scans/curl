@@ -469,6 +469,13 @@ static int invalid_octets(const char *p)
 #define CERR_PSL           14 /* a public suffix */
 #define CERR_LIVE_WINS     15
 
+/* The maximum length we accept a date string for the 'expire' keyword. The
+   standard date formats are within the 30 bytes range. This adds an extra
+   margin just to make sure it realistically works with what is used out
+   there.
+*/
+#define MAX_DATE_LENGTH 80
+
 static int
 parse_cookie_header(struct Curl_easy *data,
                     struct Cookie *co,
@@ -709,14 +716,17 @@ parse_cookie_header(struct Curl_easy *data,
         }
       }
       else if((nlen == 7) && strncasecompare("expires", namep, 7)) {
-        if(!co->expires) {
+        if(!co->expires && (vlen < MAX_DATE_LENGTH)) {
           /*
            * Let max-age have priority.
            *
            * If the date cannot get parsed for whatever reason, the cookie
            * will be treated as a session cookie
            */
-          co->expires = Curl_getdate_capped(valuep);
+          char dbuf[MAX_DATE_LENGTH + 1];
+          memcpy(dbuf, valuep, vlen);
+          dbuf[vlen] = 0;
+          co->expires = Curl_getdate_capped(dbuf);
 
           /*
            * Session cookies have expires set to 0 so if we get that back
@@ -833,14 +843,16 @@ parse_netscape(struct Cookie *co,
   if(ptr)
     *ptr = 0; /* clear it */
 
-  firstptr = strtok_r((char *)lineptr, "\t", &tok_buf); /* tokenize on TAB */
+  /* tokenize on TAB */
+  firstptr = Curl_strtok_r((char *)lineptr, "\t", &tok_buf);
 
   /*
    * Now loop through the fields and init the struct we already have
    * allocated
    */
   fields = 0;
-  for(ptr = firstptr; ptr; ptr = strtok_r(NULL, "\t", &tok_buf), fields++) {
+  for(ptr = firstptr; ptr;
+      ptr = Curl_strtok_r(NULL, "\t", &tok_buf), fields++) {
     switch(fields) {
     case 0:
       if(ptr[0]=='.') /* skip preceding dots */
@@ -855,7 +867,7 @@ parse_netscape(struct Cookie *co,
        * domain can access the variable. Set TRUE when the cookie says
        * .domain.com and to false when the domain is complete www.domain.com
        */
-      co->tailmatch = strcasecompare(ptr, "TRUE") ? TRUE : FALSE;
+      co->tailmatch = !!strcasecompare(ptr, "TRUE");
       break;
     case 2:
       /* The file format allows the path field to remain not filled in */
@@ -989,7 +1001,7 @@ replace_existing(struct Curl_easy *data,
   size_t myhash = cookiehash(co->domain);
   for(n = Curl_llist_head(&ci->cookielist[myhash]); n; n = Curl_node_next(n)) {
     struct Cookie *clist = Curl_node_elem(n);
-    if(strcasecompare(clist->name, co->name)) {
+    if(!strcmp(clist->name, co->name)) {
       /* the names are identical */
       bool matching_domains = FALSE;
 
@@ -1029,7 +1041,7 @@ replace_existing(struct Curl_easy *data,
       }
     }
 
-    if(!replace_n && strcasecompare(clist->name, co->name)) {
+    if(!replace_n && !strcmp(clist->name, co->name)) {
       /* the names are identical */
 
       if(clist->domain && co->domain) {

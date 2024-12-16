@@ -205,7 +205,7 @@ static CURLcode tftp_set_timeouts(struct tftp_state_data *state)
 {
   time_t maxtime, timeout;
   timediff_t timeout_ms;
-  bool start = (state->state == TFTP_STATE_START) ? TRUE : FALSE;
+  bool start = (state->state == TFTP_STATE_START);
 
   /* Compute drop-dead time */
   timeout_ms = Curl_timeleft(state->data, NULL, start);
@@ -524,7 +524,7 @@ static CURLcode tftp_send_first(struct tftp_state_data *state,
        not have a size_t argument, like older unixes that want an 'int' */
     senddata = sendto(state->sockfd, (void *)state->spacket.data,
                       (SEND_TYPE_ARG3)sbytes, 0,
-                      &data->conn->remote_addr->curl_sa_addr,
+                     (struct sockaddr *)&data->conn->remote_addr->curl_sa_addr,
                       (curl_socklen_t)data->conn->remote_addr->addrlen);
     if(senddata != (ssize_t)sbytes) {
       char buffer[STRERROR_LEN];
@@ -1232,7 +1232,7 @@ static CURLcode tftp_multi_statemach(struct Curl_easy *data, bool *done)
     result = tftp_state_machine(state, event);
     if(result)
       return result;
-    *done = (state->state == TFTP_STATE_FIN) ? TRUE : FALSE;
+    *done = (state->state == TFTP_STATE_FIN);
     if(*done)
       /* Tell curl we are done */
       Curl_xfer_setup_nop(data);
@@ -1255,7 +1255,7 @@ static CURLcode tftp_multi_statemach(struct Curl_easy *data, bool *done)
       result = tftp_state_machine(state, state->event);
       if(result)
         return result;
-      *done = (state->state == TFTP_STATE_FIN) ? TRUE : FALSE;
+      *done = (state->state == TFTP_STATE_FIN);
       if(*done)
         /* Tell curl we are done */
         Curl_xfer_setup_nop(data);

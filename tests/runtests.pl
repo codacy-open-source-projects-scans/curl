@@ -823,6 +823,7 @@ sub checksystemfeatures {
     $feature{"headers-api"} = 1;
     $feature{"xattr"} = 1;
     $feature{"large-time"} = 1;
+    $feature{"large-size"} = 1;
     $feature{"sha512-256"} = 1;
     $feature{"local-http"} = servers::localhttp();
     $feature{"codeset-utf8"} = lc(langinfo(CODESET())) eq "utf-8";
@@ -871,7 +872,8 @@ sub checksystemfeatures {
                "*\n");
     }
 
-    logmsg sprintf("* Env: %s%s%s%s", $valgrind?"Valgrind ":"",
+    logmsg sprintf("* Env: %s%s%s%s%s", $valgrind?"Valgrind ":"",
+                   $run_duphandle?"test-duphandle ":"",
                    $run_event_based?"event-based ":"",
                    $bundle?"bundle ":"",
                    $nghttpx_h3);
@@ -2270,9 +2272,13 @@ while(@ARGV) {
         # have the servers display protocol output
         $debugprotocol=1;
     }
-    elsif($ARGV[0] eq "-e") {
+    elsif(($ARGV[0] eq "-e") || ($ARGV[0] eq "--test-event")) {
         # run the tests cases event based if possible
         $run_event_based=1;
+    }
+    elsif($ARGV[0] eq "--test-duphandle") {
+        # run the tests with --test-duphandle
+        $run_duphandle=1;
     }
     elsif($ARGV[0] eq "-f") {
         # force - run the test case even if listed in DISABLED
@@ -2446,7 +2452,8 @@ Usage: runtests.pl [options] [test selection(s)]
   -bundle  use test bundles
   -c path  use this curl executable
   -d       display server debug info
-  -e       event-based execution
+  -e, --test-event  event-based execution
+  --test-duphandle  duplicate handles before use
   -E file  load the specified file to exclude certain tests
   -f       forcibly run even if disabled
   -g       run the test case with gdb

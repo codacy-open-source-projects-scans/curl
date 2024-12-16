@@ -54,7 +54,7 @@
 #  ifdef MBEDTLS_DEBUG
 #    include <mbedtls/debug.h>
 #  endif
-#endif
+#endif /* MBEDTLS_VERSION_MAJOR >= 2 */
 
 #include "cipher_suite.h"
 #include "strcase.h"
@@ -122,7 +122,7 @@ struct mbed_ssl_backend_data {
 #define HAS_SESSION_TICKETS
 #endif
 
-#if defined(THREADING_SUPPORT)
+#ifdef THREADING_SUPPORT
 static mbedtls_entropy_context ts_entropy;
 
 static int entropy_init_initialized = 0;
@@ -584,16 +584,6 @@ mbed_connect_step1(struct Curl_cfilter *cf, struct Curl_easy *data)
     failf(data, "Not supported SSL version");
     return CURLE_NOT_BUILT_IN;
   }
-
-#ifdef TLS13_SUPPORT
-  ret = psa_crypto_init();
-  if(ret != PSA_SUCCESS) {
-    mbedtls_strerror(ret, errorbuf, sizeof(errorbuf));
-    failf(data, "mbedTLS psa_crypto_init returned (-0x%04X) %s",
-          -ret, errorbuf);
-    return CURLE_SSL_CONNECT_ERROR;
-  }
-#endif /* TLS13_SUPPORT */
 
 #ifdef THREADING_SUPPORT
   mbedtls_ctr_drbg_init(&backend->ctr_drbg);
@@ -1387,34 +1377,23 @@ static size_t mbedtls_version(char *buffer, size_t size)
 #endif
 }
 
+/* 'data' might be NULL */
 static CURLcode mbedtls_random(struct Curl_easy *data,
                                unsigned char *entropy, size_t length)
 {
 #if defined(MBEDTLS_CTR_DRBG_C)
-  int ret = -1;
-  char errorbuf[128];
+  int ret;
   mbedtls_entropy_context ctr_entropy;
   mbedtls_ctr_drbg_context ctr_drbg;
   mbedtls_entropy_init(&ctr_entropy);
   mbedtls_ctr_drbg_init(&ctr_drbg);
+  (void)data;
 
   ret = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func,
                               &ctr_entropy, NULL, 0);
 
-  if(ret) {
-    mbedtls_strerror(ret, errorbuf, sizeof(errorbuf));
-    failf(data, "mbedtls_ctr_drbg_seed returned (-0x%04X) %s",
-          -ret, errorbuf);
-  }
-  else {
+  if(!ret)
     ret = mbedtls_ctr_drbg_random(&ctr_drbg, entropy, length);
-
-    if(ret) {
-      mbedtls_strerror(ret, errorbuf, sizeof(errorbuf));
-      failf(data, "mbedtls_ctr_drbg_random returned (-0x%04X) %s",
-            -ret, errorbuf);
-    }
-  }
 
   mbedtls_ctr_drbg_free(&ctr_drbg);
   mbedtls_entropy_free(&ctr_entropy);
@@ -1582,6 +1561,20 @@ static int mbedtls_init(void)
 #ifdef THREADING_SUPPORT
   entropy_init_mutex(&ts_entropy);
 #endif
+#ifdef TLS13_SUPPORT
+  {
+    int ret;
+#ifdef THREADING_SUPPORT
+    Curl_mbedtlsthreadlock_lock_function(0);
+#endif
+    ret = psa_crypto_init();
+#ifdef THREADING_SUPPORT
+    Curl_mbedtlsthreadlock_unlock_function(0);
+#endif
+    if(ret != PSA_SUCCESS)
+      return 0;
+  }
+#endif /* TLS13_SUPPORT */
   return 1;
 }
 
