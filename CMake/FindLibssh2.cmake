@@ -25,8 +25,8 @@
 #
 # Input variables:
 #
-# - `LIBSSH2_INCLUDE_DIR`:   The libssh2 include directory.
-# - `LIBSSH2_LIBRARY`:       Path to `libssh2` library.
+# - `LIBSSH2_INCLUDE_DIR`:   Absolute path to libssh2 include directory.
+# - `LIBSSH2_LIBRARY`:       Absolute path to `libssh2` library.
 #
 # Result variables:
 #
@@ -34,17 +34,21 @@
 # - `LIBSSH2_INCLUDE_DIRS`:  The libssh2 include directories.
 # - `LIBSSH2_LIBRARIES`:     The libssh2 library names.
 # - `LIBSSH2_LIBRARY_DIRS`:  The libssh2 library directories.
+# - `LIBSSH2_PC_REQUIRES`:   The libssh2 pkg-config packages.
 # - `LIBSSH2_CFLAGS`:        Required compiler flags.
 # - `LIBSSH2_VERSION`:       Version of libssh2.
+
+set(LIBSSH2_PC_REQUIRES "libssh2")
 
 if(CURL_USE_PKGCONFIG AND
    NOT DEFINED LIBSSH2_INCLUDE_DIR AND
    NOT DEFINED LIBSSH2_LIBRARY)
   find_package(PkgConfig QUIET)
-  pkg_check_modules(LIBSSH2 "libssh2")
+  pkg_check_modules(LIBSSH2 ${LIBSSH2_PC_REQUIRES})
 endif()
 
 if(LIBSSH2_FOUND AND LIBSSH2_INCLUDE_DIRS)
+  set(Libssh2_FOUND TRUE)
   string(REPLACE ";" " " LIBSSH2_CFLAGS "${LIBSSH2_CFLAGS}")
   message(STATUS "Found Libssh2 (via pkg-config): ${LIBSSH2_INCLUDE_DIRS} (found version \"${LIBSSH2_VERSION}\")")
 else()

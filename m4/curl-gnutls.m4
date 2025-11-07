@@ -137,11 +137,10 @@ if test "x$OPT_GNUTLS" != xno; then
   test -z "$ssl_msg" || ssl_backends="${ssl_backends:+$ssl_backends, }$ssl_msg"
 fi
 
-dnl ---
-dnl Check which crypto backend GnuTLS uses
-dnl ---
-
 if test "$GNUTLS_ENABLED" = "1"; then
+  dnl ---
+  dnl Check which crypto backend GnuTLS uses
+  dnl ---
   USE_GNUTLS_NETTLE=
   # First check if we can detect either crypto library via transitive linking
   AC_CHECK_LIB(gnutls, nettle_MD5Init, [ USE_GNUTLS_NETTLE=1 ])
@@ -154,17 +153,17 @@ if test "$GNUTLS_ENABLED" = "1"; then
     AC_MSG_ERROR([GnuTLS found, but nettle was not found])
   fi
   LIBS="-lnettle $LIBS"
-fi
 
-dnl ---
-dnl We require GnuTLS with SRP support.
-dnl ---
-if test "$GNUTLS_ENABLED" = "1"; then
+  dnl ---
+  dnl We require GnuTLS with SRP support.
+  dnl
+  dnl In GnuTLS 3.8.0 (2023-02-10) and upper, this check always succeeds.
+  dnl Detecting actual TLS-SRP support needs poking the API at runtime.
+  dnl ---
   AC_CHECK_LIB(gnutls, gnutls_srp_verifier,
     [
       AC_DEFINE(HAVE_GNUTLS_SRP, 1, [if you have the function gnutls_srp_verifier])
       HAVE_GNUTLS_SRP=1
     ])
 fi
-
 ])

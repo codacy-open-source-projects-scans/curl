@@ -25,9 +25,9 @@
 #
 # Input variables:
 #
-# - `BROTLI_INCLUDE_DIR`:    The brotli include directory.
-# - `BROTLICOMMON_LIBRARY`:  Path to `brotlicommon` library.
-# - `BROTLIDEC_LIBRARY`:     Path to `brotlidec` library.
+# - `BROTLI_INCLUDE_DIR`:    Absolute path to brotli include directory.
+# - `BROTLICOMMON_LIBRARY`:  Absolute path to `brotlicommon` library.
+# - `BROTLIDEC_LIBRARY`:     Absolute path to `brotlidec` library.
 #
 # Result variables:
 #
@@ -35,24 +35,23 @@
 # - `BROTLI_INCLUDE_DIRS`:   The brotli include directories.
 # - `BROTLI_LIBRARIES`:      The brotli library names.
 # - `BROTLI_LIBRARY_DIRS`:   The brotli library directories.
+# - `BROTLI_PC_REQUIRES`:    The brotli pkg-config packages.
 # - `BROTLI_CFLAGS`:         Required compiler flags.
 # - `BROTLI_VERSION`:        Version of brotli.
+
+set(BROTLI_PC_REQUIRES "libbrotlidec" "libbrotlicommon")  # order is significant: brotlidec then brotlicommon
 
 if(CURL_USE_PKGCONFIG AND
    NOT DEFINED BROTLI_INCLUDE_DIR AND
    NOT DEFINED BROTLICOMMON_LIBRARY AND
    NOT DEFINED BROTLIDEC_LIBRARY)
   find_package(PkgConfig QUIET)
-  pkg_check_modules(BROTLI "libbrotlicommon")
-  pkg_check_modules(BROTLIDEC "libbrotlidec")
+  pkg_check_modules(BROTLI ${BROTLI_PC_REQUIRES})
 endif()
 
-if(BROTLI_FOUND AND BROTLIDEC_FOUND)
-  list(APPEND BROTLIDEC_LIBRARIES ${BROTLI_LIBRARIES})  # order is significant: brotlidec then brotlicommon
-  list(REVERSE BROTLIDEC_LIBRARIES)
-  list(REMOVE_DUPLICATES BROTLIDEC_LIBRARIES)
-  list(REVERSE BROTLIDEC_LIBRARIES)
-  set(BROTLI_LIBRARIES ${BROTLIDEC_LIBRARIES})
+if(BROTLI_FOUND)
+  set(Brotli_FOUND TRUE)
+  set(BROTLI_VERSION ${BROTLI_libbrotlicommon_VERSION})
   string(REPLACE ";" " " BROTLI_CFLAGS "${BROTLI_CFLAGS}")
   message(STATUS "Found Brotli (via pkg-config): ${BROTLI_INCLUDE_DIRS} (found version \"${BROTLI_VERSION}\")")
 else()

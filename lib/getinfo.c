@@ -28,10 +28,11 @@
 
 #include "urldata.h"
 #include "getinfo.h"
-
+#include "cfilters.h"
 #include "vtls/vtls.h"
 #include "connect.h" /* Curl_getconnectinfo() */
 #include "progress.h"
+#include "curlx/strparse.h"
 
 /* The last #include files should be: */
 #include "curl_memory.h"
@@ -44,7 +45,7 @@
  * beginning of a perform session. It must reset the session-info variables,
  * in particular all variables in struct PureInfo.
  */
-CURLcode Curl_initinfo(struct Curl_easy *data)
+void Curl_initinfo(struct Curl_easy *data)
 {
   struct Progress *pro = &data->progress;
   struct PureInfo *info = &data->info;
@@ -69,6 +70,8 @@ CURLcode Curl_initinfo(struct Curl_easy *data)
   info->request_size = 0;
   info->proxyauthavail = 0;
   info->httpauthavail = 0;
+  info->proxyauthpicked = 0;
+  info->httpauthpicked = 0;
   info->numconnects = 0;
 
   free(info->contenttype);
@@ -88,7 +91,6 @@ CURLcode Curl_initinfo(struct Curl_easy *data)
 #ifdef USE_SSL
   Curl_ssl_free_certinfo(data);
 #endif
-  return CURLE_OK;
 }
 
 static CURLcode getinfo_char(struct Curl_easy *data, CURLINFO info,
@@ -96,7 +98,7 @@ static CURLcode getinfo_char(struct Curl_easy *data, CURLINFO info,
 {
   switch(info) {
   case CURLINFO_EFFECTIVE_URL:
-    *param_charp = data->state.url ? data->state.url : (char *)"";
+    *param_charp = data->state.url ? data->state.url : "";
     break;
   case CURLINFO_EFFECTIVE_METHOD: {
     const char *m = data->set.str[STRING_CUSTOMREQUEST];
@@ -202,9 +204,10 @@ static CURLcode getinfo_long(struct Curl_easy *data, CURLINFO info,
   } lptr;
 
 #ifdef DEBUGBUILD
-  char *timestr = getenv("CURL_TIME");
+  const char *timestr = getenv("CURL_TIME");
   if(timestr) {
-    unsigned long val = strtoul(timestr, NULL, 10);
+    curl_off_t val;
+    curlx_str_number(&timestr, &val, TIME_T_MAX);
     switch(info) {
     case CURLINFO_LOCAL_PORT:
       *param_longp = (long)val;
@@ -216,7 +219,8 @@ static CURLcode getinfo_long(struct Curl_easy *data, CURLINFO info,
   /* use another variable for this to allow different values */
   timestr = getenv("CURL_DEBUG_SIZE");
   if(timestr) {
-    unsigned long val = strtoul(timestr, NULL, 10);
+    curl_off_t val;
+    curlx_str_number(&timestr, &val, LONG_MAX);
     switch(info) {
     case CURLINFO_HEADER_SIZE:
     case CURLINFO_REQUEST_SIZE:
@@ -271,6 +275,14 @@ static CURLcode getinfo_long(struct Curl_easy *data, CURLINFO info,
   case CURLINFO_PROXYAUTH_AVAIL:
     lptr.to_long = param_longp;
     *lptr.to_ulong = data->info.proxyauthavail;
+    break;
+  case CURLINFO_HTTPAUTH_USED:
+    lptr.to_long = param_longp;
+    *lptr.to_ulong = data->info.httpauthpicked;
+    break;
+  case CURLINFO_PROXYAUTH_USED:
+    lptr.to_long = param_longp;
+    *lptr.to_ulong = data->info.proxyauthpicked;
     break;
   case CURLINFO_OS_ERRNO:
     *param_longp = data->state.os_errno;
@@ -369,9 +381,11 @@ static CURLcode getinfo_offt(struct Curl_easy *data, CURLINFO info,
                              curl_off_t *param_offt)
 {
 #ifdef DEBUGBUILD
-  char *timestr = getenv("CURL_TIME");
+  const char *timestr = getenv("CURL_TIME");
   if(timestr) {
-    unsigned long val = strtoul(timestr, NULL, 10);
+    curl_off_t val;
+    curlx_str_number(&timestr, &val, CURL_OFF_T_MAX);
+
     switch(info) {
     case CURLINFO_TOTAL_TIME_T:
     case CURLINFO_NAMELOOKUP_TIME_T:
@@ -379,6 +393,7 @@ static CURLcode getinfo_offt(struct Curl_easy *data, CURLINFO info,
     case CURLINFO_APPCONNECT_TIME_T:
     case CURLINFO_PRETRANSFER_TIME_T:
     case CURLINFO_POSTTRANSFER_TIME_T:
+    case CURLINFO_QUEUE_TIME_T:
     case CURLINFO_STARTTRANSFER_TIME_T:
     case CURLINFO_REDIRECT_TIME_T:
     case CURLINFO_SPEED_DOWNLOAD_T:
@@ -407,11 +422,11 @@ static CURLcode getinfo_offt(struct Curl_easy *data, CURLINFO info,
     *param_offt = data->progress.ul.speed;
     break;
   case CURLINFO_CONTENT_LENGTH_DOWNLOAD_T:
-    *param_offt = (data->progress.flags & PGRS_DL_SIZE_KNOWN) ?
+    *param_offt = data->progress.dl_size_known ?
       data->progress.dl.total_size : -1;
     break;
   case CURLINFO_CONTENT_LENGTH_UPLOAD_T:
-    *param_offt = (data->progress.flags & PGRS_UL_SIZE_KNOWN) ?
+    *param_offt = data->progress.ul_size_known ?
       data->progress.ul.total_size : -1;
     break;
    case CURLINFO_TOTAL_TIME_T:
@@ -465,9 +480,11 @@ static CURLcode getinfo_double(struct Curl_easy *data, CURLINFO info,
                                double *param_doublep)
 {
 #ifdef DEBUGBUILD
-  char *timestr = getenv("CURL_TIME");
+  const char *timestr = getenv("CURL_TIME");
   if(timestr) {
-    unsigned long val = strtoul(timestr, NULL, 10);
+    curl_off_t val;
+    curlx_str_number(&timestr, &val, CURL_OFF_T_MAX);
+
     switch(info) {
     case CURLINFO_TOTAL_TIME:
     case CURLINFO_NAMELOOKUP_TIME:
@@ -517,11 +534,11 @@ static CURLcode getinfo_double(struct Curl_easy *data, CURLINFO info,
     *param_doublep = (double)data->progress.ul.speed;
     break;
   case CURLINFO_CONTENT_LENGTH_DOWNLOAD:
-    *param_doublep = (data->progress.flags & PGRS_DL_SIZE_KNOWN) ?
+    *param_doublep = data->progress.dl_size_known ?
       (double)data->progress.dl.total_size : -1;
     break;
   case CURLINFO_CONTENT_LENGTH_UPLOAD:
-    *param_doublep = (data->progress.flags & PGRS_UL_SIZE_KNOWN) ?
+    *param_doublep = data->progress.ul_size_known ?
       (double)data->progress.ul.total_size : -1;
     break;
   case CURLINFO_REDIRECT_TIME:
@@ -562,19 +579,14 @@ static CURLcode getinfo_slist(struct Curl_easy *data, CURLINFO info,
       struct curl_tlssessioninfo **tsip = (struct curl_tlssessioninfo **)
                                           param_slistp;
       struct curl_tlssessioninfo *tsi = &data->tsi;
-#ifdef USE_SSL
-      struct connectdata *conn = data->conn;
-#endif
 
+      /* we are exposing a pointer to internal memory with unknown
+       * lifetime here. */
       *tsip = tsi;
-      tsi->backend = Curl_ssl_backend();
-      tsi->internals = NULL;
-
-#ifdef USE_SSL
-      if(conn && tsi->backend != CURLSSLBACKEND_NONE) {
-        tsi->internals = Curl_ssl_get_internals(data, FIRSTSOCKET, info, 0);
+      if(!Curl_conn_get_ssl_info(data, data->conn, FIRSTSOCKET, tsi)) {
+        tsi->backend = Curl_ssl_backend();
+        tsi->internals = NULL;
       }
-#endif
     }
     break;
   default:
@@ -608,7 +620,7 @@ CURLcode Curl_getinfo(struct Curl_easy *data, CURLINFO info, ...)
   struct curl_slist **param_slistp = NULL;
   curl_socket_t *param_socketp = NULL;
   int type;
-  CURLcode result = CURLE_UNKNOWN_OPTION;
+  CURLcode result = CURLE_BAD_FUNCTION_ARGUMENT;
 
   if(!data)
     return CURLE_BAD_FUNCTION_ARGUMENT;
@@ -648,6 +660,7 @@ CURLcode Curl_getinfo(struct Curl_easy *data, CURLINFO info, ...)
       result = getinfo_socket(data, info, param_socketp);
     break;
   default:
+    result = CURLE_UNKNOWN_OPTION;
     break;
   }
 

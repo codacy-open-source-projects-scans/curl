@@ -10,16 +10,11 @@ HTTP GET
 #
 # Server-side
 <reply>
-<data>
-</data>
 </reply>
 
 #
 # Client-side
 <client>
-<server>
-none
-</server>
 <features>
 http
 </features>
@@ -34,9 +29,9 @@ http
 #
 # Verify data after the test has been "shot"
 <verify>
-# 1 - Protocol "http" disabled
+# 2 failed init, the --proto argument is not accepted
 <errorcode>
-1
+2
 </errorcode>
 </verify>
 </testcase>
