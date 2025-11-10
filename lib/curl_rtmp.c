@@ -240,10 +240,9 @@ static CURLcode rtmp_setup_connection(struct Curl_easy *data,
 
   RTMP_Init(r);
   RTMP_SetBufferMS(r, DEF_BUFTIME);
-  if(!RTMP_SetupURL(r, data->state.url)) {
-    RTMP_Free(r);
+  if(!RTMP_SetupURL(r, data->state.url))
+    /* rtmp_conn_dtor() performs the cleanup */
     return CURLE_URL_MALFORMAT;
-  }
   return CURLE_OK;
 }
 
@@ -255,6 +254,11 @@ static CURLcode rtmp_connect(struct Curl_easy *data, bool *done)
 
   if(!r)
     return CURLE_FAILED_INIT;
+
+  if(conn->sock[FIRSTSOCKET] > INT_MAX) {
+    /* The socket value is invalid for rtmp. */
+    return CURLE_FAILED_INIT;
+  }
 
   r->m_sb.sb_socket = (int)conn->sock[FIRSTSOCKET];
 

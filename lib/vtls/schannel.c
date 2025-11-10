@@ -580,6 +580,7 @@ schannel_acquire_credential_handle(struct Curl_cfilter *cf,
       failf(data, "schannel: certificate format compatibility error "
             " for %s",
             blob ? "(memory blob)" : data->set.ssl.primary.clientcert);
+      free(cert_store_path);
       curlx_unicodefree(cert_path);
       if(fInCert)
         curlx_fclose(fInCert);
@@ -597,6 +598,7 @@ schannel_acquire_credential_handle(struct Curl_cfilter *cf,
       int cert_find_flags;
       const char *cert_showfilename_error = blob ?
         "(memory blob)" : data->set.ssl.primary.clientcert;
+      free(cert_store_path);
       curlx_unicodefree(cert_path);
       if(fInCert) {
         long cert_tell = 0;
@@ -1478,6 +1480,8 @@ cert_counter_callback(const CERT_CONTEXT *ccert_context, bool reverse_order,
   (void)reverse_order;
   if(valid_cert_encoding(ccert_context))
     (*(int *)certs_count)++;
+  if(*(int *)certs_count > MAX_ALLOWED_CERT_AMOUNT)
+    return FALSE;
   return TRUE;
 }
 
@@ -1623,6 +1627,12 @@ schannel_connect_step3(struct Curl_cfilter *cf, struct Curl_easy *data)
     }
 
     traverse_cert_store(ccert_context, cert_counter_callback, &certs_count);
+    if(certs_count > MAX_ALLOWED_CERT_AMOUNT) {
+      failf(data, "%d certificates is more than allowed (%u)",
+            certs_count, MAX_ALLOWED_CERT_AMOUNT);
+      CertFreeCertificateContext(ccert_context);
+      return CURLE_SSL_CONNECT_ERROR;
+    }
 
     result = Curl_ssl_init_certinfo(data, certs_count);
     if(!result) {
