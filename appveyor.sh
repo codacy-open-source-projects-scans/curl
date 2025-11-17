@@ -35,12 +35,11 @@ esac
 
 if [ "${APPVEYOR_BUILD_WORKER_IMAGE}" = 'Visual Studio 2022' ]; then
   openssl_root_win="C:/OpenSSL-v35${openssl_suffix}"
+  openssl_root="$(cygpath "${openssl_root_win}")"
 elif [ "${APPVEYOR_BUILD_WORKER_IMAGE}" = 'Visual Studio 2019' ]; then
   openssl_root_win="C:/OpenSSL-v30${openssl_suffix}"
-else
-  openssl_root_win="C:/OpenSSL-v111${openssl_suffix}"
+  openssl_root="$(cygpath "${openssl_root_win}")"
 fi
-openssl_root="$(cygpath "${openssl_root_win}")"
 
 if [ "${BUILD_SYSTEM}" = 'CMake' ]; then
   # Set env CHKPREFILL to the value '_chkprefill' to compare feature detection
@@ -98,7 +97,7 @@ elif [ "${BUILD_SYSTEM}" = 'VisualStudioSolution' ]; then
   curl="build/Win32/${VC_VERSION}/${PRJ_CFG}/curld.exe"
 fi
 
-find . \( -name '*.exe' -o -name '*.dll' -o -name '*.lib' -o -name '*.pdb' \) -exec file '{}' \;
+find . \( -name '*.exe' -o -name '*.dll' -o -name '*.lib' -o -name '*.pdb' \) -exec file -- '{}' \;
 if [ -z "${SKIP_RUN:-}" ]; then
   "${curl}" --disable --version
 else

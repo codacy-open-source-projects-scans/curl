@@ -116,16 +116,12 @@ static struct tool_mime *tool_mime_new_filedata(struct tool_mime *parent,
         m->data = filedup;
         if(!isremotefile)
           m->kind = TOOLMIME_FILEDATA;
-       *errcode = CURLE_OK;
+        *errcode = CURLE_OK;
       }
     }
   }
   else {        /* Standard input. */
-#ifdef UNDER_CE
-    int fd = STDIN_FILENO;
-#else
     int fd = fileno(stdin);
-#endif
     char *data = NULL;
     curl_off_t size;
     curl_off_t origin;

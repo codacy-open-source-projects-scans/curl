@@ -48,9 +48,7 @@ struct entry_s {
 
 extern const struct entry_s s_entries[];
 
-#ifndef UNDER_CE
 #include <signal.h>
-#endif
 #ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
 #endif
@@ -128,7 +126,6 @@ extern int getpart(char **outbuf, size_t *outlen,
 extern char *data_to_hex(char *data, size_t len);
 extern void logmsg(const char *msg, ...);
 extern void loghex(unsigned char *buffer, ssize_t len);
-extern unsigned char byteval(char *value);
 extern int win32_init(void);
 extern FILE *test2fopen(long testno, const char *logdir2);
 extern curl_off_t our_getpid(void);
