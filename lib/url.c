@@ -81,14 +81,13 @@
 #include "cookie.h"
 #include "strcase.h"
 #include "escape.h"
-#include "share.h"
+#include "curl_share.h"
 #include "content_encoding.h"
 #include "http_digest.h"
 #include "http_negotiate.h"
 #include "select.h"
 #include "multiif.h"
 #include "easyif.h"
-#include "speedcheck.h"
 #include "curlx/warnless.h"
 #include "getinfo.h"
 #include "pop3.h"
@@ -3884,7 +3883,6 @@ CURLcode Curl_connect(struct Curl_easy *data,
 
 CURLcode Curl_init_do(struct Curl_easy *data, struct connectdata *conn)
 {
-  /* if this is a pushed stream, we need this: */
   CURLcode result;
 
   if(conn) {
@@ -3904,9 +3902,7 @@ CURLcode Curl_init_do(struct Curl_easy *data, struct connectdata *conn)
 
   result = Curl_req_start(&data->req, data);
   if(!result) {
-    Curl_speedinit(data);
-    Curl_pgrsSetUploadCounter(data, 0);
-    Curl_pgrsSetDownloadCounter(data, 0);
+    Curl_pgrsReset(data);
   }
   return result;
 }
