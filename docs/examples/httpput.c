@@ -39,9 +39,9 @@
 
 #ifdef _WIN32
 #undef stat
-#define stat _stat
+#define stat _stati64
 #undef fstat
-#define fstat _fstat
+#define fstat _fstati64
 #define fileno _fileno
 #endif
 
@@ -77,7 +77,7 @@ int main(int argc, char **argv)
 {
   CURL *curl;
   CURLcode res;
-  FILE * hd_src;
+  FILE *hd_src;
   struct stat file_info;
 
   char *file;

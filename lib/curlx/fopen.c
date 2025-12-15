@@ -22,21 +22,13 @@
  *
  ***************************************************************************/
 
-/*
- * This file is 'mem-include-scan' clean, which means its memory allocations
- * are not tracked by the curl memory tracker memdebug, so they must not use
- * `CURLDEBUG` macro replacements in memdebug.h for free, malloc, etc. To avoid
- * these macro replacements, wrap the names in parentheses to call the original
- * versions: `ptr = (malloc)(123)`, `(free)(ptr)`, etc.
- */
-
 #include "../curl_setup.h"
 
 #include "fopen.h"
 
 int curlx_fseek(void *stream, curl_off_t offset, int whence)
 {
-#if defined(_WIN32) && defined(USE_WIN32_LARGE_FILES)
+#ifdef _WIN32
   return _fseeki64(stream, (__int64)offset, whence);
 #elif defined(HAVE_FSEEKO) && defined(HAVE_DECL_FSEEKO)
   return fseeko(stream, (off_t)offset, whence);
@@ -49,9 +41,42 @@ int curlx_fseek(void *stream, curl_off_t offset, int whence)
 
 #ifdef _WIN32
 
-#include "multibyte.h"
-
 #include <share.h>  /* for _SH_DENYNO */
+
+#ifdef CURLDEBUG
+/*
+ * Use system allocators to avoid infinite recursion when called by curl's
+ * memory tracker memdebug functions.
+ */
+#define CURLX_MALLOC(x) malloc(x)
+#define CURLX_FREE(x)   free(x)
+#else
+#define CURLX_MALLOC(x) curlx_malloc(x)
+#define CURLX_FREE(x)   curlx_free(x)
+#endif
+
+#ifdef _UNICODE
+static wchar_t *fn_convert_UTF8_to_wchar(const char *str_utf8)
+{
+  wchar_t *str_w = NULL;
+
+  if(str_utf8) {
+    int str_w_len = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                        str_utf8, -1, NULL, 0);
+    if(str_w_len > 0) {
+      str_w = CURLX_MALLOC(str_w_len * sizeof(wchar_t));
+      if(str_w) {
+        if(MultiByteToWideChar(CP_UTF8, 0,
+                               str_utf8, -1, str_w, str_w_len) == 0) {
+          CURLX_FREE(str_w);
+          return NULL;
+        }
+      }
+    }
+  }
+  return str_w;
+}
+#endif
 
 /* declare GetFullPathNameW for mingw-w64 UWP builds targeting old windows */
 #if defined(CURL_WINDOWS_UWP) && defined(__MINGW32__) && \
@@ -103,7 +128,7 @@ static bool fix_excessive_path(const TCHAR *in, TCHAR **out)
     goto cleanup;
   if(!needed || needed >= max_path_len)
     goto cleanup;
-  ibuf = (malloc)(needed * sizeof(wchar_t));
+  ibuf = CURLX_MALLOC(needed * sizeof(wchar_t));
   if(!ibuf)
     goto cleanup;
   if(mbstowcs_s(&count, ibuf, needed, in, needed - 1))
@@ -124,7 +149,7 @@ static bool fix_excessive_path(const TCHAR *in, TCHAR **out)
   /* skip paths that are not excessive and do not need modification */
   if(needed <= MAX_PATH)
     goto cleanup;
-  fbuf = (malloc)(needed * sizeof(wchar_t));
+  fbuf = CURLX_MALLOC(needed * sizeof(wchar_t));
   if(!fbuf)
     goto cleanup;
   count = (size_t)GetFullPathNameW(in_w, (DWORD)needed, fbuf, NULL);
@@ -157,16 +182,16 @@ static bool fix_excessive_path(const TCHAR *in, TCHAR **out)
       if(needed > max_path_len)
         goto cleanup;
 
-      temp = (malloc)(needed * sizeof(wchar_t));
+      temp = CURLX_MALLOC(needed * sizeof(wchar_t));
       if(!temp)
         goto cleanup;
 
       if(wcsncpy_s(temp, needed, L"\\\\?\\UNC\\", 8)) {
-        (free)(temp);
+        CURLX_FREE(temp);
         goto cleanup;
       }
       if(wcscpy_s(temp + 8, needed, fbuf + 2)) {
-        (free)(temp);
+        CURLX_FREE(temp);
         goto cleanup;
       }
     }
@@ -176,21 +201,21 @@ static bool fix_excessive_path(const TCHAR *in, TCHAR **out)
       if(needed > max_path_len)
         goto cleanup;
 
-      temp = (malloc)(needed * sizeof(wchar_t));
+      temp = CURLX_MALLOC(needed * sizeof(wchar_t));
       if(!temp)
         goto cleanup;
 
       if(wcsncpy_s(temp, needed, L"\\\\?\\", 4)) {
-        (free)(temp);
+        CURLX_FREE(temp);
         goto cleanup;
       }
       if(wcscpy_s(temp + 4, needed, fbuf)) {
-        (free)(temp);
+        CURLX_FREE(temp);
         goto cleanup;
       }
     }
 
-    (free)(fbuf);
+    CURLX_FREE(fbuf);
     fbuf = temp;
   }
 
@@ -200,7 +225,7 @@ static bool fix_excessive_path(const TCHAR *in, TCHAR **out)
     goto cleanup;
   if(!needed || needed >= max_path_len)
     goto cleanup;
-  obuf = (malloc)(needed);
+  obuf = CURLX_MALLOC(needed);
   if(!obuf)
     goto cleanup;
   if(wcstombs_s(&count, obuf, needed, fbuf, needed - 1))
@@ -215,10 +240,10 @@ static bool fix_excessive_path(const TCHAR *in, TCHAR **out)
 #endif
 
 cleanup:
-  (free)(fbuf);
+  CURLX_FREE(fbuf);
 #ifndef _UNICODE
-  (free)(ibuf);
-  (free)(obuf);
+  CURLX_FREE(ibuf);
+  CURLX_FREE(obuf);
 #endif
   return *out ? true : false;
 }
@@ -231,7 +256,7 @@ int curlx_win32_open(const char *filename, int oflag, ...)
   const TCHAR *target = NULL;
 
 #ifdef _UNICODE
-  wchar_t *filename_w = curlx_convert_UTF8_to_wchar(filename);
+  wchar_t *filename_w = fn_convert_UTF8_to_wchar(filename);
 #endif
 
   va_list param;
@@ -247,7 +272,7 @@ int curlx_win32_open(const char *filename, int oflag, ...)
     else
       target = filename_w;
     errno = _wsopen_s(&result, target, oflag, _SH_DENYNO, pmode);
-    curlx_unicodefree(filename_w);
+    CURLX_FREE(filename_w);
   }
   else
     /* !checksrc! disable ERRNOVAR 1 */
@@ -260,7 +285,7 @@ int curlx_win32_open(const char *filename, int oflag, ...)
   errno = _sopen_s(&result, target, oflag, _SH_DENYNO, pmode);
 #endif
 
-  (free)(fixed);
+  CURLX_FREE(fixed);
   return result;
 }
 
@@ -271,8 +296,8 @@ FILE *curlx_win32_fopen(const char *filename, const char *mode)
   const TCHAR *target = NULL;
 
 #ifdef _UNICODE
-  wchar_t *filename_w = curlx_convert_UTF8_to_wchar(filename);
-  wchar_t *mode_w = curlx_convert_UTF8_to_wchar(mode);
+  wchar_t *filename_w = fn_convert_UTF8_to_wchar(filename);
+  wchar_t *mode_w = fn_convert_UTF8_to_wchar(mode);
   if(filename_w && mode_w) {
     if(fix_excessive_path(filename_w, &fixed))
       target = fixed;
@@ -283,8 +308,8 @@ FILE *curlx_win32_fopen(const char *filename, const char *mode)
   else
     /* !checksrc! disable ERRNOVAR 1 */
     errno = EINVAL;
-  curlx_unicodefree(filename_w);
-  curlx_unicodefree(mode_w);
+  CURLX_FREE(filename_w);
+  CURLX_FREE(mode_w);
 #else
   if(fix_excessive_path(filename, &fixed))
     target = fixed;
@@ -293,7 +318,7 @@ FILE *curlx_win32_fopen(const char *filename, const char *mode)
   errno = fopen_s(&result, target, mode);
 #endif
 
-  (free)(fixed);
+  CURLX_FREE(fixed);
   return result;
 }
 
@@ -309,8 +334,8 @@ FILE *curlx_win32_freopen(const char *filename, const char *mode, FILE *fp)
   const TCHAR *target = NULL;
 
 #ifdef _UNICODE
-  wchar_t *filename_w = curlx_convert_UTF8_to_wchar(filename);
-  wchar_t *mode_w = curlx_convert_UTF8_to_wchar(mode);
+  wchar_t *filename_w = fn_convert_UTF8_to_wchar(filename);
+  wchar_t *mode_w = fn_convert_UTF8_to_wchar(mode);
   if(filename_w && mode_w) {
     if(fix_excessive_path(filename_w, &fixed))
       target = fixed;
@@ -321,8 +346,8 @@ FILE *curlx_win32_freopen(const char *filename, const char *mode, FILE *fp)
   else
     /* !checksrc! disable ERRNOVAR 1 */
     errno = EINVAL;
-  curlx_unicodefree(filename_w);
-  curlx_unicodefree(mode_w);
+  CURLX_FREE(filename_w);
+  CURLX_FREE(mode_w);
 #else
   if(fix_excessive_path(filename, &fixed))
     target = fixed;
@@ -331,7 +356,7 @@ FILE *curlx_win32_freopen(const char *filename, const char *mode, FILE *fp)
   errno = freopen_s(&result, target, mode, fp);
 #endif
 
-  (free)(fixed);
+  CURLX_FREE(fixed);
   return result;
 }
 
@@ -342,18 +367,14 @@ int curlx_win32_stat(const char *path, struct_stat *buffer)
   const TCHAR *target = NULL;
 
 #ifdef _UNICODE
-  wchar_t *path_w = curlx_convert_UTF8_to_wchar(path);
+  wchar_t *path_w = fn_convert_UTF8_to_wchar(path);
   if(path_w) {
     if(fix_excessive_path(path_w, &fixed))
       target = fixed;
     else
       target = path_w;
-#ifndef USE_WIN32_LARGE_FILES
-    result = _wstat(target, buffer);
-#else
     result = _wstati64(target, buffer);
-#endif
-    curlx_unicodefree(path_w);
+    CURLX_FREE(path_w);
   }
   else
     /* !checksrc! disable ERRNOVAR 1 */
@@ -363,15 +384,14 @@ int curlx_win32_stat(const char *path, struct_stat *buffer)
     target = fixed;
   else
     target = path;
-#ifndef USE_WIN32_LARGE_FILES
-  result = _stat(target, buffer);
-#else
   result = _stati64(target, buffer);
 #endif
-#endif
 
-  (free)(fixed);
+  CURLX_FREE(fixed);
   return result;
 }
+
+#undef CURLX_MALLOC
+#undef CURLX_FREE
 
 #endif /* _WIN32 */
