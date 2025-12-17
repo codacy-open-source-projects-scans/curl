@@ -94,8 +94,7 @@
 #define _CRT_NONSTDC_NO_DEPRECATE  /* for close(), fileno(), unlink(), etc. */
 #endif
 #ifndef _CRT_SECURE_NO_WARNINGS
-#define _CRT_SECURE_NO_WARNINGS  /* for getenv(), gmtime(), strcpy(),
-                                    in tests: localtime(), sscanf() */
+#define _CRT_SECURE_NO_WARNINGS  /* for getenv(), strcpy(), tests: sscanf() */
 #endif
 #endif /* _MSC_VER */
 
@@ -1148,17 +1147,17 @@ int getpwuid_r(uid_t uid, struct passwd *pwd, char *buf,
 #endif
 
 #if defined(USE_UNIX_SOCKETS) && defined(_WIN32)
-#  ifndef UNIX_PATH_MAX
-     /* Replicating logic present in afunix.h
-        (distributed with newer Windows 10 SDK versions only) */
-#    define UNIX_PATH_MAX 108
-     /* !checksrc! disable TYPEDEFSTRUCT 1 */
-     typedef struct sockaddr_un {
-       CURL_SA_FAMILY_T sun_family;
-       char sun_path[UNIX_PATH_MAX];
-     } SOCKADDR_UN, *PSOCKADDR_UN;
-#    define WIN32_SOCKADDR_UN
-#  endif
+/* Offered by mingw-w64 v10+. MS SDK 10.17763/~VS2017+. */
+#if defined(__MINGW32__) && (__MINGW64_VERSION_MAJOR >= 10)
+#  include <afunix.h>
+#elif !defined(UNIX_PATH_MAX) /* Replicate logic present in afunix.h */
+#  define UNIX_PATH_MAX 108
+/* !checksrc! disable TYPEDEFSTRUCT 1 */
+typedef struct sockaddr_un {
+  CURL_SA_FAMILY_T sun_family;
+  char sun_path[UNIX_PATH_MAX];
+} SOCKADDR_UN, *PSOCKADDR_UN;
+#endif
 #endif
 
 #ifdef USE_OPENSSL

@@ -885,6 +885,9 @@ sub checksystemfeatures {
     if(system("diff $TESTDIR/DISABLED $TESTDIR/DISABLED 2>$dev_null") != 0) {
         logmsg "* diff: missing\n";
     }
+    if($mintotal) {
+        logmsg "* Min tests: $mintotal\n";
+    }
 }
 
 #######################################################################
@@ -1760,6 +1763,7 @@ sub singletest_check {
             if($leak) {
                 logmsg "\n** MEMORY FAILURE\n";
                 logmsg @memdata;
+                logmsg " $testnum: memory FAILED\n";
                 # timestamp test result verification end
                 $timevrfyend{$testnum} = Time::HiRes::time();
                 return -1;
@@ -1798,6 +1802,7 @@ sub singletest_check {
             if($allocs > $lim_allocs) {
                 logmsg "\n** TOO MANY ALLOCS\n";
                 logmsg "$lim_allocs allocations allowed, did $allocs\n";
+                logmsg " $testnum: allocs FAILED\n";
                 # timestamp test result verification end
                 $timevrfyend{$testnum} = Time::HiRes::time();
                 return -1;
@@ -1805,6 +1810,7 @@ sub singletest_check {
             if($max > $lim_max) {
                 logmsg "\n** TOO MUCH TOTAL ALLOCATION\n";
                 logmsg "$lim_max maximum allocation allowed, did $max\n";
+                logmsg " $testnum: allocsize FAILED\n";
                 # timestamp test result verification end
                 $timevrfyend{$testnum} = Time::HiRes::time();
                 return -1;
@@ -1823,7 +1829,7 @@ sub singletest_check {
             my $fname = shift @notexists;
             chomp $fname;
             if(-e $fname) {
-                logmsg "Found '$fname' when not supposed to exist.\n";
+                logmsg "ERROR: Found '$fname' when not supposed to exist.\n";
                 $err++;
             }
             elsif($verbose) {
@@ -2711,6 +2717,10 @@ if(!$jobs) {
     setlogfunc(\&logmsg);
 }
 
+if(!$mintotal && $ENV{"CURL_TEST_MIN"}) {
+    $mintotal = $ENV{"CURL_TEST_MIN"};
+}
+
 #######################################################################
 # Output curl version and host info being tested
 #
@@ -3332,9 +3342,6 @@ else {
     }
 }
 
-if(!$mintotal && $ENV{"CURL_TEST_MIN"}) {
-    $mintotal = $ENV{"CURL_TEST_MIN"};
-}
 if($mintotal) {
     if($total < $mintotal) {
         logmsg "TESTFAIL: number of tests run was below the minimum of: $mintotal\n";

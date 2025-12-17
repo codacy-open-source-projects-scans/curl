@@ -56,6 +56,7 @@
 #include "../select.h"
 #include "../strdup.h"
 #include "../curlx/fopen.h"
+#include "../curlx/timeval.h"
 #include "../curlx/warnless.h"
 #include "x509asn1.h"
 #include "../multiif.h"
@@ -148,7 +149,7 @@ static ssize_t gtls_pull(void *s, void *buf, size_t blen)
  * gtls_init()
  *
  * Global GnuTLS init, called from Curl_ssl_init(). This calls functions that
- * are not thread-safe (It is thread safe since GnuTLS 3.3.0) and thus this
+ * are not thread-safe (It is thread-safe since GnuTLS 3.3.0) and thus this
  * function itself is not thread-safe and must only be called from within
  * curl_global_init() to keep the thread situation under control!
  *
@@ -178,7 +179,7 @@ static void showtime(struct Curl_easy *data, const char *text, time_t stamp)
   struct tm buffer;
   const struct tm *tm = &buffer;
   char str[96];
-  CURLcode result = Curl_gmtime(stamp, &buffer);
+  CURLcode result = curlx_gmtime(stamp, &buffer);
   if(result)
     return;
 
@@ -411,7 +412,7 @@ CURLcode Curl_gtls_shared_creds_create(struct Curl_easy *data,
   }
 
   shared->refcount = 1;
-  shared->time = curlx_now();
+  shared->time = data->progress.now;
   *pcreds = shared;
   return CURLE_OK;
 }
@@ -562,8 +563,7 @@ static bool gtls_shared_creds_expired(const struct Curl_easy *data,
                                       const struct gtls_shared_creds *sc)
 {
   const struct ssl_general_config *cfg = &data->set.general_ssl;
-  struct curltime now = curlx_now();
-  timediff_t elapsed_ms = curlx_timediff_ms(now, sc->time);
+  timediff_t elapsed_ms = curlx_timediff_ms(data->progress.now, sc->time);
   timediff_t timeout_ms = cfg->ca_cache_timeout * (timediff_t)1000;
 
   if(timeout_ms < 0)

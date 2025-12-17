@@ -87,6 +87,7 @@
 #include "bufref.h"
 #include "curl_ctype.h"
 #include "curlx/strparse.h"
+#include "curlx/timeval.h"
 
 /*
  * Forward declarations.
@@ -1786,7 +1787,7 @@ CURLcode Curl_add_timecondition(struct Curl_easy *data,
     /* no condition was asked for */
     return CURLE_OK;
 
-  result = Curl_gmtime(data->set.timevalue, &keeptime);
+  result = curlx_gmtime(data->set.timevalue, &keeptime);
   if(result) {
     failf(data, "Invalid TIMEVALUE");
     return result;
@@ -4949,7 +4950,7 @@ static CURLcode cr_exp100_read(struct Curl_easy *data,
     DEBUGF(infof(data, "cr_exp100_read, start AWAITING_CONTINUE, "
            "timeout %dms", data->set.expect_100_timeout));
     ctx->state = EXP100_AWAITING_CONTINUE;
-    ctx->start = curlx_now();
+    ctx->start = data->progress.now;
     Curl_expire(data, data->set.expect_100_timeout, EXPIRE_100_TIMEOUT);
     *nread = 0;
     *eos = FALSE;
@@ -4960,7 +4961,7 @@ static CURLcode cr_exp100_read(struct Curl_easy *data,
     *eos = FALSE;
     return CURLE_READ_ERROR;
   case EXP100_AWAITING_CONTINUE:
-    ms = curlx_timediff_ms(curlx_now(), ctx->start);
+    ms = curlx_timediff_ms(data->progress.now, ctx->start);
     if(ms < data->set.expect_100_timeout) {
       DEBUGF(infof(data, "cr_exp100_read, AWAITING_CONTINUE, not expired"));
       *nread = 0;
