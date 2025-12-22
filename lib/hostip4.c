@@ -44,10 +44,8 @@
 #endif
 
 #include "urldata.h"
-#include "sendf.h"
+#include "curl_trc.h"
 #include "hostip.h"
-#include "hash.h"
-#include "curl_share.h"
 #include "url.h"
 
 

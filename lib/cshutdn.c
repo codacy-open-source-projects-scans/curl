@@ -25,18 +25,14 @@
 
 #include "curl_setup.h"
 
-#include <curl/curl.h>
-
 #include "urldata.h"
 #include "url.h"
 #include "cfilters.h"
 #include "progress.h"
 #include "multiif.h"
 #include "multi_ev.h"
-#include "sendf.h"
+#include "curl_trc.h"
 #include "cshutdn.h"
-#include "http_negotiate.h"
-#include "http_ntlm.h"
 #include "sigpipe.h"
 #include "connect.h"
 #include "select.h"
@@ -266,7 +262,7 @@ static void cshutdn_terminate_all(struct cshutdn *cshutdn,
                                   struct Curl_easy *data,
                                   int timeout_ms)
 {
-  struct curltime started = data->progress.now;
+  struct curltime started = *Curl_pgrs_now(data);
   struct Curl_llist_node *e;
   SIGPIPE_VARIABLE(pipe_st);
 
@@ -289,8 +285,7 @@ static void cshutdn_terminate_all(struct cshutdn *cshutdn,
     }
 
     /* wait for activity, timeout or "nothing" */
-    Curl_pgrs_now_set(data); /* update in loop */
-    spent_ms = curlx_timediff_ms(data->progress.now, started);
+    spent_ms = curlx_ptimediff_ms(Curl_pgrs_now(data), &started);
     if(spent_ms >= (timediff_t)timeout_ms) {
       CURL_TRC_M(data, "[SHUTDOWN] shutdown finished, %s",
                  (timeout_ms > 0) ? "timeout" : "best effort done");

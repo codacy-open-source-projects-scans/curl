@@ -29,7 +29,7 @@
 #include "urldata.h"
 #include "cookie.h"
 #include "psl.h"
-#include "sendf.h"
+#include "curl_trc.h"
 #include "slist.h"
 #include "curl_share.h"
 #include "strcase.h"
@@ -37,7 +37,6 @@
 #include "curl_get_line.h"
 #include "curl_memrchr.h"
 #include "parsedate.h"
-#include "rename.h"
 #include "strdup.h"
 #include "llist.h"
 #include "bufref.h"
@@ -1534,7 +1533,7 @@ static CURLcode cookie_output(struct Curl_easy *data,
   if(!use_stdout) {
     curlx_fclose(out);
     out = NULL;
-    if(tempstore && Curl_rename(tempstore, filename)) {
+    if(tempstore && curlx_rename(tempstore, filename)) {
       error = CURLE_WRITE_ERROR;
       goto error;
     }

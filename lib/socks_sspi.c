@@ -28,15 +28,15 @@
 #if defined(USE_WINDOWS_SSPI) && !defined(CURL_DISABLE_PROXY)
 
 #include "urldata.h"
-#include "sendf.h"
+#include "curl_trc.h"
 #include "cfilters.h"
 #include "connect.h"
 #include "strerror.h"
+#include "curlx/nonblock.h"
 #include "curlx/timeval.h"
 #include "socks.h"
 #include "curl_sspi.h"
 #include "curlx/multibyte.h"
-#include "curlx/warnless.h"
 
 /*
  * Helper sspi error functions.

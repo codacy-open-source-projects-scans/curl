@@ -34,7 +34,6 @@
 #include "../bufq.h"
 #include "../curlx/dynbuf.h"
 #include "../curlx/fopen.h"
-#include "../curlx/warnless.h"
 #include "../cfilters.h"
 #include "../curl_trc.h"
 #include "curl_ngtcp2.h"
@@ -53,7 +52,6 @@
 
 #define NW_CHUNK_SIZE     (64 * 1024)
 #define NW_SEND_CHUNKS    1
-
 
 int Curl_vquic_init(void)
 {
@@ -96,7 +94,7 @@ CURLcode vquic_ctx_init(struct Curl_easy *data,
     }
   }
 #endif
-  vquic_ctx_set_time(data, qctx);
+  vquic_ctx_set_time(qctx, Curl_pgrs_now(data));
 
   return CURLE_OK;
 }
@@ -106,17 +104,16 @@ void vquic_ctx_free(struct cf_quic_ctx *qctx)
   Curl_bufq_free(&qctx->sendbuf);
 }
 
-void vquic_ctx_set_time(struct Curl_easy *data,
-                        struct cf_quic_ctx *qctx)
+void vquic_ctx_set_time(struct cf_quic_ctx *qctx,
+                        const struct curltime *pnow)
 {
-  qctx->last_op = data->progress.now;
+  qctx->last_op = *pnow;
 }
 
-void vquic_ctx_update_time(struct Curl_easy *data,
-                           struct cf_quic_ctx *qctx)
+void vquic_ctx_update_time(struct cf_quic_ctx *qctx,
+                           const struct curltime *pnow)
 {
-  Curl_pgrs_now_set(data);
-  qctx->last_op = data->progress.now;
+  qctx->last_op = *pnow;
 }
 
 static CURLcode send_packet_no_gso(struct Curl_cfilter *cf,

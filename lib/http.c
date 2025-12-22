@@ -48,16 +48,15 @@
 #endif
 
 #include "urldata.h"
-#include <curl/curl.h>
 #include "transfer.h"
 #include "sendf.h"
+#include "curl_trc.h"
 #include "formdata.h"
 #include "mime.h"
 #include "progress.h"
 #include "curlx/base64.h"
 #include "cookie.h"
 #include "vauth/vauth.h"
-#include "vtls/vtls.h"
 #include "vquic/vquic.h"
 #include "http_digest.h"
 #include "http_ntlm.h"
@@ -76,7 +75,6 @@
 #include "strcase.h"
 #include "content_encoding.h"
 #include "http_proxy.h"
-#include "curlx/warnless.h"
 #include "http2.h"
 #include "cfilters.h"
 #include "connect.h"
@@ -85,7 +83,6 @@
 #include "hsts.h"
 #include "ws.h"
 #include "bufref.h"
-#include "curl_ctype.h"
 #include "curlx/strparse.h"
 #include "curlx/timeval.h"
 
@@ -4296,11 +4293,14 @@ static void unfold_header(struct Curl_easy *data)
 {
   size_t len = curlx_dyn_len(&data->state.headerb);
   char *hd = curlx_dyn_ptr(&data->state.headerb);
-  if(len && (hd[len -1] == '\n'))
+  if(len && (hd[len - 1] == '\n'))
     len--;
-  if(len && (hd[len -1] == '\r'))
+  if(len && (hd[len - 1] == '\r'))
+    len--;
+  while(len && (ISBLANK(hd[len - 1]))) /* strip off trailing whitespace */
     len--;
   curlx_dyn_setlen(&data->state.headerb, len);
+  data->state.leading_unfold = TRUE;
 }
 
 /*
@@ -4342,6 +4342,23 @@ static CURLcode http_parse_headers(struct Curl_easy *data,
     size_t consumed;
     size_t hlen;
     char *hd;
+    size_t unfold_len = 0;
+
+    if(data->state.leading_unfold) {
+      /* immediately after an unfold, keep only a single whitespace */
+      while(blen && ISBLANK(buf[0])) {
+        buf++;
+        blen--;
+        unfold_len++;
+      }
+      if(blen) {
+        /* insert a single space */
+        result = curlx_dyn_addn(&data->state.headerb, " ", 1);
+        if(result)
+          return result;
+        data->state.leading_unfold = FALSE; /* done now */
+      }
+    }
 
     end_ptr = memchr(buf, '\n', blen);
     if(!end_ptr) {
@@ -4350,7 +4367,7 @@ static CURLcode http_parse_headers(struct Curl_easy *data,
       result = curlx_dyn_addn(&data->state.headerb, buf, blen);
       if(result)
         return result;
-      *pconsumed += blen;
+      *pconsumed += blen + unfold_len;
 
       if(!k->headerline) {
         /* check if this looks like a protocol header */
@@ -4379,14 +4396,15 @@ static CURLcode http_parse_headers(struct Curl_easy *data,
       goto out; /* read more and try again */
     }
 
-    /* decrease the size of the remaining (supposed) header line */
+    /* the size of the remaining header line */
     consumed = (end_ptr - buf) + 1;
+
     result = curlx_dyn_addn(&data->state.headerb, buf, consumed);
     if(result)
       return result;
     blen -= consumed;
     buf += consumed;
-    *pconsumed += consumed;
+    *pconsumed += consumed + unfold_len;
 
     /****
      * We now have a FULL header line in 'headerb'.
@@ -4950,7 +4968,7 @@ static CURLcode cr_exp100_read(struct Curl_easy *data,
     DEBUGF(infof(data, "cr_exp100_read, start AWAITING_CONTINUE, "
            "timeout %dms", data->set.expect_100_timeout));
     ctx->state = EXP100_AWAITING_CONTINUE;
-    ctx->start = data->progress.now;
+    ctx->start = *Curl_pgrs_now(data);
     Curl_expire(data, data->set.expect_100_timeout, EXPIRE_100_TIMEOUT);
     *nread = 0;
     *eos = FALSE;
@@ -4961,7 +4979,7 @@ static CURLcode cr_exp100_read(struct Curl_easy *data,
     *eos = FALSE;
     return CURLE_READ_ERROR;
   case EXP100_AWAITING_CONTINUE:
-    ms = curlx_timediff_ms(data->progress.now, ctx->start);
+    ms = curlx_ptimediff_ms(Curl_pgrs_now(data), &ctx->start);
     if(ms < data->set.expect_100_timeout) {
       DEBUGF(infof(data, "cr_exp100_read, AWAITING_CONTINUE, not expired"));
       *nread = 0;

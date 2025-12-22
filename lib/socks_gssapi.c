@@ -29,12 +29,12 @@
 
 #include "curl_gssapi.h"
 #include "urldata.h"
-#include "sendf.h"
+#include "curl_trc.h"
 #include "cfilters.h"
 #include "connect.h"
+#include "curlx/nonblock.h"
 #include "curlx/timeval.h"
 #include "socks.h"
-#include "curlx/warnless.h"
 #include "strdup.h"
 
 #if defined(__GNUC__) && defined(__APPLE__)

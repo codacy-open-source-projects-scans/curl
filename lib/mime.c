@@ -24,14 +24,12 @@
 
 #include "curl_setup.h"
 
-#include <curl/curl.h>
-
 struct Curl_easy;
 
 #include "mime.h"
-#include "curlx/warnless.h"
 #include "urldata.h"
 #include "sendf.h"
+#include "curl_trc.h"
 #include "transfer.h"
 #include "strdup.h"
 #include "curlx/fopen.h"
@@ -262,7 +260,6 @@ static char *Curl_basename(char *path)
 #define basename(x)  Curl_basename(x)
 #endif
 
-
 /* Set readback state. */
 static void mimesetstate(struct mime_state *state,
                          enum mimestate tok, void *ptr)
@@ -271,7 +268,6 @@ static void mimesetstate(struct mime_state *state,
   state->ptr = ptr;
   state->offset = 0;
 }
-
 
 /* Escape header string into allocated memory. */
 static char *escape_string(struct Curl_easy *data,
@@ -457,10 +453,10 @@ static size_t encoder_base64_read(char *buffer, size_t size, bool ateof,
     i = st->buf[st->bufbeg++] & 0xFF;
     i = (i << 8) | (st->buf[st->bufbeg++] & 0xFF);
     i = (i << 8) | (st->buf[st->bufbeg++] & 0xFF);
-    *ptr++ = Curl_base64encdec[(i >> 18) & 0x3F];
-    *ptr++ = Curl_base64encdec[(i >> 12) & 0x3F];
-    *ptr++ = Curl_base64encdec[(i >> 6) & 0x3F];
-    *ptr++ = Curl_base64encdec[i & 0x3F];
+    *ptr++ = curlx_base64encdec[(i >> 18) & 0x3F];
+    *ptr++ = curlx_base64encdec[(i >> 12) & 0x3F];
+    *ptr++ = curlx_base64encdec[(i >> 6) & 0x3F];
+    *ptr++ = curlx_base64encdec[i & 0x3F];
     cursize += 4;
     st->pos += 4;
     size -= 4;
@@ -484,10 +480,10 @@ static size_t encoder_base64_read(char *buffer, size_t size, bool ateof,
           i = (st->buf[st->bufbeg + 1] & 0xFF) << 8;
 
         i |= (st->buf[st->bufbeg] & 0xFF) << 16;
-        ptr[0] = Curl_base64encdec[(i >> 18) & 0x3F];
-        ptr[1] = Curl_base64encdec[(i >> 12) & 0x3F];
+        ptr[0] = curlx_base64encdec[(i >> 18) & 0x3F];
+        ptr[1] = curlx_base64encdec[(i >> 12) & 0x3F];
         if(++st->bufbeg != st->bufend) {
-          ptr[2] = Curl_base64encdec[(i >> 6) & 0x3F];
+          ptr[2] = curlx_base64encdec[(i >> 6) & 0x3F];
           st->bufbeg++;
         }
         cursize += 4;

@@ -48,16 +48,14 @@
 
 #include "urldata.h"
 #include "url.h"
-#include <curl/curl.h>
 #include "transfer.h"
 #include "sendf.h"
+#include "curl_trc.h"
 #include "telnet.h"
 #include "connect.h"
 #include "progress.h"
-#include "system_win32.h"
 #include "arpa_telnet.h"
 #include "select.h"
-#include "curlx/warnless.h"
 #include "curlx/strparse.h"
 
 #define SUBBUFSIZE 512
@@ -93,7 +91,6 @@
 
 #define CURL_EMPTY       0
 #define CURL_OPPOSITE    1
-
 
 /* meta key for storing protocol meta at easy handle */
 #define CURL_META_TELNET_EASY   "meta:proto:telnet:easy"
@@ -1508,8 +1505,7 @@ static CURLcode telnet_do(struct Curl_easy *data, bool *done)
     } /* switch */
 
     if(data->set.timeout) {
-      Curl_pgrs_now_set(data);
-      if(curlx_timediff_ms(data->progress.now, conn->created) >=
+      if(curlx_ptimediff_ms(Curl_pgrs_now(data), &conn->created) >=
          data->set.timeout) {
         failf(data, "Time-out");
         result = CURLE_OPERATION_TIMEDOUT;
@@ -1628,8 +1624,7 @@ static CURLcode telnet_do(struct Curl_easy *data, bool *done)
     } /* poll switch statement */
 
     if(data->set.timeout) {
-      Curl_pgrs_now_set(data);
-      if(curlx_timediff_ms(data->progress.now, conn->created) >=
+      if(curlx_ptimediff_ms(Curl_pgrs_now(data), &conn->created) >=
          data->set.timeout) {
         failf(data, "Time-out");
         result = CURLE_OPERATION_TIMEDOUT;

@@ -34,26 +34,18 @@
 #include <netinet/tcp.h>
 #endif
 
-#include <curl/curl.h>
-
 #include "urldata.h"
 #include "sendf.h"
+#include "curl_trc.h"
 #include "transfer.h"
 #include "cfilters.h"
 #include "connect.h"
-#include "content_encoding.h"
 #include "cw-out.h"
 #include "cw-pause.h"
-#include "vtls/vtls.h"
-#include "vssh/ssh.h"
-#include "easyif.h"
 #include "multiif.h"
 #include "strerror.h"
-#include "select.h"
 #include "http2.h"
 #include "progress.h"
-#include "curlx/warnless.h"
-#include "ws.h"
 
 
 static CURLcode do_init_writer_stack(struct Curl_easy *data);
@@ -230,7 +222,7 @@ static CURLcode cw_download_write(struct Curl_easy *data,
   if(!ctx->started_response &&
      !(type & (CLIENTWRITE_INFO | CLIENTWRITE_CONNECT))) {
     Curl_pgrsTime(data, TIMER_STARTTRANSFER);
-    Curl_rlimit_start(&data->progress.dl.rlimit, &data->progress.now);
+    Curl_rlimit_start(&data->progress.dl.rlimit, Curl_pgrs_now(data));
     ctx->started_response = TRUE;
   }
 
@@ -1202,13 +1194,13 @@ CURLcode Curl_client_read(struct Curl_easy *data, char *buf, size_t blen,
     DEBUGASSERT(data->req.reader_stack);
   }
   if(!data->req.reader_started) {
-    Curl_rlimit_start(&data->progress.ul.rlimit, &data->progress.now);
+    Curl_rlimit_start(&data->progress.ul.rlimit, Curl_pgrs_now(data));
     data->req.reader_started = TRUE;
   }
 
   if(Curl_rlimit_active(&data->progress.ul.rlimit)) {
-    curl_off_t ul_avail =
-      Curl_rlimit_avail(&data->progress.ul.rlimit, &data->progress.now);
+    curl_off_t ul_avail = Curl_rlimit_avail(&data->progress.ul.rlimit,
+                                            Curl_pgrs_now(data));
     if(ul_avail <= 0) {
       result = CURLE_OK;
       *eos = FALSE;

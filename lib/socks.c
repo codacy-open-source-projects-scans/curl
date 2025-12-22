@@ -35,13 +35,12 @@
 
 #include "urldata.h"
 #include "bufq.h"
-#include "sendf.h"
+#include "curl_trc.h"
 #include "select.h"
 #include "cfilters.h"
 #include "connect.h"
 #include "curlx/timeval.h"
 #include "socks.h"
-#include "multiif.h" /* for getsock macros */
 #include "curlx/inet_pton.h"
 #include "url.h"
 

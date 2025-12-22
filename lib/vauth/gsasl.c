@@ -28,10 +28,8 @@
 
 #ifdef USE_GSASL
 
-#include <curl/curl.h>
-
 #include "vauth.h"
-#include "../sendf.h"
+#include "../curl_trc.h"
 
 #include <gsasl.h>
 

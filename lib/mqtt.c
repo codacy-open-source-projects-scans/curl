@@ -28,16 +28,14 @@
 #ifndef CURL_DISABLE_MQTT
 
 #include "urldata.h"
-#include <curl/curl.h>
 #include "transfer.h"
 #include "sendf.h"
+#include "curl_trc.h"
 #include "progress.h"
 #include "mqtt.h"
 #include "select.h"
 #include "url.h"
 #include "escape.h"
-#include "curlx/warnless.h"
-#include "multiif.h"
 #include "rand.h"
 
 /* first byte is command.
@@ -186,7 +184,7 @@ static CURLcode mqtt_send(struct Curl_easy *data,
   result = Curl_xfer_send(data, buf, len, FALSE, &n);
   if(result)
     return result;
-  mq->lastTime = data->progress.now;
+  mq->lastTime = *Curl_pgrs_now(data);
   Curl_debug(data, CURLINFO_HEADER_OUT, buf, n);
   if(len != n) {
     size_t nsend = len - n;
@@ -770,7 +768,7 @@ MQTT_SUBACK_COMING:
     }
 
     /* we received something */
-    mq->lastTime = data->progress.now;
+    mq->lastTime = *Curl_pgrs_now(data);
 
     /* if QoS is set, message contains packet id */
     result = Curl_client_write(data, CLIENTWRITE_BODY, buffer, nread);
@@ -800,7 +798,7 @@ static CURLcode mqtt_do(struct Curl_easy *data, bool *done)
 
   if(!mq)
     return CURLE_FAILED_INIT;
-  mq->lastTime = data->progress.now;
+  mq->lastTime = *Curl_pgrs_now(data);
   mq->pingsent = FALSE;
 
   result = mqtt_connect(data);
@@ -839,8 +837,8 @@ static CURLcode mqtt_ping(struct Curl_easy *data)
   if(mqtt->state == MQTT_FIRST &&
      !mq->pingsent &&
      data->set.upkeep_interval_ms > 0) {
-    struct curltime t = data->progress.now;
-    timediff_t diff = curlx_timediff_ms(t, mq->lastTime);
+    struct curltime t = *Curl_pgrs_now(data);
+    timediff_t diff = curlx_ptimediff_ms(&t, &mq->lastTime);
 
     if(diff > data->set.upkeep_interval_ms) {
       /* 0xC0 is PINGREQ, and 0x00 is remaining length */
@@ -898,7 +896,7 @@ static CURLcode mqtt_doing(struct Curl_easy *data, bool *done)
     Curl_debug(data, CURLINFO_HEADER_IN, (const char *)&mq->firstbyte, 1);
 
     /* we received something */
-    mq->lastTime = data->progress.now;
+    mq->lastTime = *Curl_pgrs_now(data);
 
     /* remember the first byte */
     mq->npacket = 0;

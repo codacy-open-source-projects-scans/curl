@@ -26,13 +26,11 @@
 
 #ifdef __AMIGA__
 
-#include <curl/curl.h>
-
 #include "hostip.h"
 #include "amigaos.h"
 
 #ifdef HAVE_PROTO_BSDSOCKET_H
-#  if defined(__amigaos4__)
+#  ifdef __amigaos4__
 #    include <bsdsocket/socketbasetags.h>
 #  elif !defined(USE_AMISSL)
 #    include <amitcp/socketbasetags.h>

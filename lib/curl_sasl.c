@@ -39,17 +39,12 @@
   !defined(CURL_DISABLE_POP3) || \
   (!defined(CURL_DISABLE_LDAP) && defined(USE_OPENLDAP))
 
-#include <curl/curl.h>
 #include "urldata.h"
-
 #include "curlx/base64.h"
 #include "vauth/vauth.h"
 #include "cfilters.h"
-#include "vtls/vtls.h"
-#include "curl_hmac.h"
 #include "curl_sasl.h"
-#include "curlx/warnless.h"
-#include "sendf.h"
+#include "curl_trc.h"
 
 /* Supported mechanisms */
 static const struct {
