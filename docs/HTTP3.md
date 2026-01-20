@@ -33,8 +33,8 @@ master branch using pull-requests, just like ordinary changes.
 
 To fix before we remove the experimental label:
 
- - the used QUIC library needs to consider itself non-beta
- - it is fine to "leave" individual backends as experimental if necessary
+- the used QUIC library needs to consider itself non-beta
+- it is fine to "leave" individual backends as experimental if necessary
 
 # ngtcp2 version
 
@@ -246,54 +246,6 @@ Build curl:
      % ./configure LDFLAGS="-Wl,-rpath,$PWD/../quiche/target/release" --with-openssl=$PWD/../quiche/quiche/deps/boringssl/src --with-quiche=$PWD/../quiche/target/release
      % make
      % make install
-
- If `make install` results in `Permission denied` error, you need to prepend
- it with `sudo`.
-
-# OpenSSL version
-
-QUIC support is **EXPERIMENTAL**
-
-Use OpenSSL 3.3.1 or newer (QUIC support was added in 3.3.0, with
-shortcomings on some platforms like macOS). 3.4.1 or newer is recommended.
-Build via:
-
-     % cd ..
-     % git clone -b $OPENSSL_VERSION https://github.com/openssl/openssl
-     % cd openssl
-     % ./config enable-tls1_3 --prefix=<somewhere> --libdir=lib
-     % make
-     % make install
-
-Build nghttp3:
-
-     % cd ..
-     % git clone -b $NGHTTP3_VERSION https://github.com/ngtcp2/nghttp3
-     % cd nghttp3
-     % git submodule update --init
-     % autoreconf -fi
-     % ./configure --prefix=<somewhere2> --enable-lib-only
-     % make
-     % make install
-
-Build curl:
-
-     % cd ..
-     % git clone https://github.com/curl/curl
-     % cd curl
-     % autoreconf -fi
-     % LDFLAGS="-Wl,-rpath,<somewhere>/lib" ./configure --with-openssl=<somewhere> --with-openssl-quic --with-nghttp3=<somewhere2>
-     % make
-     % make install
-
-You can build curl with cmake:
-
-     % cd ..
-     % git clone https://github.com/curl/curl
-     % cd curl
-     % cmake -B bld -DCURL_USE_OPENSSL=ON -DUSE_OPENSSL_QUIC=ON
-     % cmake --build bld
-     % cmake --install bld
 
  If `make install` results in `Permission denied` error, you need to prepend
  it with `sudo`.

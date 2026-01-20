@@ -43,6 +43,7 @@
 
 #include "../urldata.h"
 #include "../curl_trc.h"
+#include "../httpsrr.h"
 #include "../formdata.h" /* for the boundary function */
 #include "../url.h" /* for the ssl config check function */
 #include "../curlx/inet_pton.h"
@@ -107,8 +108,6 @@
 #include <openssl/store.h>
 /* this is used in the following conditions to make them easier to read */
 #define OPENSSL_HAS_PROVIDERS
-
-static void ossl_provider_cleanup(struct Curl_easy *data);
 #endif
 
 /* AWS-LC fixed a bug with large buffers in v1.61.0 which also introduced
@@ -180,8 +179,6 @@ typedef int numcert_t;
 typedef unsigned long sslerr_t;
 #endif
 #define ossl_valsize_t numcert_t
-
-static CURLcode ossl_certchain(struct Curl_easy *data, SSL *ssl);
 
 static CURLcode push_certinfo(struct Curl_easy *data,
                               BIO *mem, const char *label, int num)
@@ -3243,7 +3240,7 @@ static X509_STORE *ossl_get_cached_x509_store(struct Curl_cfilter *cf,
      !ossl_cached_x509_store_expired(data, share) &&
      !ossl_cached_x509_store_different(cf, data, share)) {
     store = share->store;
-    *pempty = share->store_is_empty;
+    *pempty = (bool)share->store_is_empty;
   }
 
   return store;
@@ -3336,7 +3333,7 @@ CURLcode Curl_ssl_setup_x509_store(struct Curl_cfilter *cf,
 
     result = ossl_populate_x509_store(cf, data, octx, store);
     if(result == CURLE_OK && cache_criteria_met) {
-      ossl_set_cached_x509_store(cf, data, store, octx->store_is_empty);
+      ossl_set_cached_x509_store(cf, data, store, (bool)octx->store_is_empty);
     }
   }
 
@@ -3655,11 +3652,7 @@ static CURLcode ossl_init_method(struct Curl_cfilter *cf,
       return CURLE_SSL_CONNECT_ERROR;
     }
 
-#ifdef USE_OPENSSL_QUIC
-    *pmethod = OSSL_QUIC_client_method();
-#else
     *pmethod = TLS_method();
-#endif
     break;
   default:
     failf(data, "unsupported transport %d in SSL init", peer->transport);
@@ -5020,7 +5013,7 @@ static bool ossl_data_pending(struct Curl_cfilter *cf,
 {
   struct ssl_connect_data *connssl = cf->ctx;
   (void)data;
-  return connssl->input_pending;
+  return (bool)connssl->input_pending;
 }
 
 static CURLcode ossl_send(struct Curl_cfilter *cf,
@@ -5040,7 +5033,6 @@ static CURLcode ossl_send(struct Curl_cfilter *cf,
   CURLcode result = CURLE_OK;
   int nwritten;
 
-  (void)data;
   DEBUGASSERT(octx);
   *pnwritten = 0;
   ERR_clear_error();
@@ -5133,7 +5125,6 @@ static CURLcode ossl_recv(struct Curl_cfilter *cf,
   CURLcode result = CURLE_OK;
   int nread;
 
-  (void)data;
   DEBUGASSERT(octx);
 
   *pnread = 0;
@@ -5424,7 +5415,11 @@ const struct Curl_ssl Curl_ssl_openssl = {
 #endif
   SSLSUPP_CA_CACHE |
   SSLSUPP_HTTPS_PROXY |
-  SSLSUPP_CIPHER_LIST,
+  SSLSUPP_CIPHER_LIST |
+  SSLSUPP_ISSUERCERT |
+  SSLSUPP_ISSUERCERT_BLOB |
+  SSLSUPP_SSL_EC_CURVES |
+  SSLSUPP_CRLFILE,
 
   sizeof(struct ossl_ctx),
 

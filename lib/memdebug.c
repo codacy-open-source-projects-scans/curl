@@ -23,7 +23,7 @@
  ***************************************************************************/
 #include "curl_setup.h"
 
-#ifdef CURLDEBUG
+#ifdef CURL_MEMDEBUG
 
 #include <stddef.h>  /* for offsetof() */
 
@@ -115,6 +115,7 @@ static void curl_dbg_cleanup(void)
   }
 #endif
 }
+
 #ifdef USE_BACKTRACE
 static void error_bt_callback(void *data, const char *message,
                               int error_number)
@@ -574,4 +575,4 @@ void curl_dbg_log(const char *format, ...)
   curl_dbg_unlock(was_locked);
 }
 
-#endif /* CURLDEBUG */
+#endif /* CURL_MEMDEBUG */

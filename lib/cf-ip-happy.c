@@ -50,6 +50,7 @@
 #include "connect.h"
 #include "cfilters.h"
 #include "cf-ip-happy.h"
+#include "curl_addrinfo.h"
 #include "curl_trc.h"
 #include "multiif.h"
 #include "progress.h"
@@ -227,7 +228,7 @@ static CURLcode cf_ip_attempt_connect(struct cf_ip_attempt *a,
                                       struct Curl_easy *data,
                                       bool *connected)
 {
-  *connected = a->connected;
+  *connected = (bool)a->connected;
   if(!a->result && !*connected) {
     /* evaluate again */
     a->result = Curl_conn_cf_connect(a->cf, data, connected);
@@ -792,7 +793,7 @@ static CURLcode cf_ip_happy_connect(struct Curl_cfilter *cf,
       cf_ip_happy_ctx_clear(cf, data);
       Curl_expire_done(data, EXPIRE_HAPPY_EYEBALLS);
 
-      if(cf->conn->handler->protocol & PROTO_FAMILY_SSH)
+      if(cf->conn->scheme->protocol & PROTO_FAMILY_SSH)
         Curl_pgrsTime(data, TIMER_APPCONNECT); /* we are connected already */
 #ifndef CURL_DISABLE_VERBOSE_STRINGS
       if(Curl_trc_cf_is_verbose(cf, data)) {

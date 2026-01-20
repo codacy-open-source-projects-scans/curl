@@ -12,31 +12,9 @@ email the
 as soon as possible and explain to us why this is a problem for you and
 how your use case cannot be satisfied properly using a workaround.
 
-## Windows XP
-
-In January 2026, curl drops support for Windows XP and Server 2003. Their
-"mainstream support" ended in 2014, with final updates on May 14, 2019.
-
-Making the new minimum target Windows version Vista / Server 2008.
-
 ## c-ares 1.16.0
 
 In March 2026, we drop support for all c-ares versions before 1.16.0.
-
-## OpenSSL-QUIC
-
-OpenSSL-QUIC is what we call the curl QUIC backend that uses the OpenSSL QUIC
-stack.
-
- - It is slower and uses more memory than the alternatives and is only
-   experimental in curl.
- - It gets little attention from OpenSSL and we have no expectation of the
-   major flaws getting corrected anytime soon.
- - No one has spoken up for keeping it
- - curl users building with vanilla OpenSSL can still use QUIC through the
-   means of ngtcp2
-
-We remove the OpenSSL-QUIC backend in January 2026.
 
 ## RTMP
 
@@ -77,3 +55,5 @@ CMake 3.18 was released on 2020-07-15.
  - Windows CE (removed in 8.18.0)
  - Support for Visual Studio 2008 (removed in 8.18.0)
  - OpenSSL 1.1.1 and older (removed in 8.18.0)
+ - Support for Windows XP (removed in 8.19.0)
+ - OpenSSL-QUIC (removed in 8.19.0)

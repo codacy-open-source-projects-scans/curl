@@ -226,6 +226,14 @@ if(PICKY_COMPILER)
             -Wno-reserved-macro-identifier # clang 13.0            appleclang 13.1  # External macros have to be set sometimes
         )
       endif()
+      if((CMAKE_C_COMPILER_ID STREQUAL "Clang"      AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 15.0) OR
+         (CMAKE_C_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 14.0.3))
+        if(CMAKE_GENERATOR STREQUAL "FASTBuild")
+          list(APPEND _picky_enable
+            -Wno-gnu-line-marker           # clang 15.0            appleclang 14.0.3
+          )
+        endif()
+      endif()
       if((CMAKE_C_COMPILER_ID STREQUAL "Clang"      AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 16.0) OR
          (CMAKE_C_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 15.0))
         list(APPEND _picky_enable
@@ -426,6 +434,10 @@ if(CMAKE_C_COMPILER_ID STREQUAL "Clang" AND MSVC)
     endforeach()
     set("${_wlist}" ${_picky_tmp})  # cmake-lint: disable=C0103
   endforeach()
+endif()
+
+if(DOS AND CMAKE_C_COMPILER_ID STREQUAL "GNU" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 10.0)
+  list(APPEND _picky "-Wno-arith-conversion")  # Avoid warnings in DJGPP's built-in FD_SET() macro
 endif()
 
 if(_picky_nocheck OR _picky)

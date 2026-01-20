@@ -66,9 +66,7 @@ if [ "${BUILD_SYSTEM}" = 'CMake' ]; then
     [ "${_chkprefill}" = '_chkprefill' ] && options+=' -D_CURL_PREFILL=OFF'
     [[ "${TARGET}" = *'ARM64'* ]] && SKIP_RUN='ARM64 architecture'
     [ -n "${TOOLSET:-}" ] && options+=" -T ${TOOLSET}"
-    [ -n "${WINTARGET:-}" ] && options+=" -DCURL_TARGET_WINDOWS_VERSION=${WINTARGET}"
     [ "${OPENSSL}" = 'ON' ] && options+=" -DOPENSSL_ROOT_DIR=${openssl_root_win}"
-    [ -n "${CURLDEBUG:-}" ] && options+=" -DENABLE_CURLDEBUG=${CURLDEBUG}"
     if [ "${APPVEYOR_BUILD_WORKER_IMAGE}" = 'Visual Studio 2013' ]; then
       mkdir "_bld${_chkprefill}"
       cd "_bld${_chkprefill}"
@@ -107,16 +105,18 @@ if [ "${BUILD_SYSTEM}" = 'CMake' ]; then
   curl="_bld/src/${PRJ_CFG}/curl.exe"
 elif [ "${BUILD_SYSTEM}" = 'VisualStudioSolution' ]; then
   (
-    cd projects
+    cd projects/Windows
     ./generate.bat "${VC_VERSION}"
-    msbuild.exe -maxcpucount "-property:Configuration=${PRJ_CFG}" "-property:Platform=${PLAT}" "Windows/${VC_VERSION}/curl-all.sln"
+    msbuild.exe -maxcpucount "-property:Configuration=${PRJ_CFG}" "-property:Platform=${PLAT}" "${VC_VERSION}/curl-all.sln"
   )
   [ "${PLAT}" = 'x64' ] && platdir='Win64' || platdir='Win32'
   [[ "${PRJ_CFG}" = *'Debug'* ]] && binsuffix='d' || binsuffix=''
   curl="build/${platdir}/${VC_VERSION}/${PRJ_CFG}/curl${binsuffix}.exe"
 fi
 
-find . \( -name '*.exe' -o -name '*.dll' -o -name '*.lib' -o -name '*.pdb' \) -exec file -- '{}' \;
+find . \( -name '*.exe' -o -name '*.dll' -o -name '*.lib' -o -name '*.pdb' \) -print0 | grep -z curl | xargs -0 file --
+find . \( -name '*.exe' -o -name '*.dll' -o -name '*.lib' -o -name '*.pdb' \) -print0 | grep -z curl | xargs -0 stat -c '%10s bytes: %n' --
+
 if [ -z "${SKIP_RUN:-}" ]; then
   "${curl}" --disable --version
 else

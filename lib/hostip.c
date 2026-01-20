@@ -44,10 +44,12 @@
 #include <signal.h>
 
 #include "urldata.h"
+#include "curl_addrinfo.h"
 #include "curl_trc.h"
 #include "connect.h"
 #include "hostip.h"
 #include "hash.h"
+#include "httpsrr.h"
 #include "rand.h"
 #include "curl_share.h"
 #include "url.h"
@@ -112,14 +114,24 @@
  * CURLRES_* defines based on the config*.h and curl_setup.h defines.
  */
 
-static void dnscache_entry_free(struct Curl_dns_entry *dns);
-
 #ifndef CURL_DISABLE_VERBOSE_STRINGS
 static void show_resolve_info(struct Curl_easy *data,
                               struct Curl_dns_entry *dns);
 #else
 #define show_resolve_info(x, y) Curl_nop_stmt
 #endif
+
+static void dnscache_entry_free(struct Curl_dns_entry *dns)
+{
+  Curl_freeaddrinfo(dns->addr);
+#ifdef USE_HTTPSRR
+  if(dns->hinfo) {
+    Curl_httpsrr_cleanup(dns->hinfo);
+    curlx_free(dns->hinfo);
+  }
+#endif
+  curlx_free(dns);
+}
 
 /*
  * Curl_printable_address() stores a printable version of the 1st address
@@ -923,10 +935,12 @@ out:
     return CURLE_OK;
   }
   else if(respwait) {
+#ifdef USE_CURL_ASYNC
     if(!Curl_resolv_check(data, &dns)) {
       *entry = dns;
       return dns ? CURLE_OK : CURLE_AGAIN;
     }
+#endif
     result = CURLE_COULDNT_RESOLVE_HOST;
   }
 error:
@@ -1158,18 +1172,6 @@ clean_up:
 #endif /* USE_ALARM_TIMEOUT */
 
   return result;
-}
-
-static void dnscache_entry_free(struct Curl_dns_entry *dns)
-{
-  Curl_freeaddrinfo(dns->addr);
-#ifdef USE_HTTPSRR
-  if(dns->hinfo) {
-    Curl_httpsrr_cleanup(dns->hinfo);
-    curlx_free(dns->hinfo);
-  }
-#endif
-  curlx_free(dns);
 }
 
 /*

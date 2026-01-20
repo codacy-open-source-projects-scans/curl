@@ -61,6 +61,7 @@
 #include "cfilters.h"
 #include "cf-socket.h"
 #include "connect.h"
+#include "curl_addrinfo.h"
 #include "select.h"
 #include "multiif.h"
 #include "curlx/inet_pton.h"
@@ -439,37 +440,6 @@ int Curl_socket_close(struct Curl_easy *data, struct connectdata *conn,
 {
   return socket_close(data, conn, FALSE, sock);
 }
-
-#ifdef USE_WINSOCK
-/* When you run a program that uses the Windows Sockets API, you may
-   experience slow performance when you copy data to a TCP server.
-
-   https://learn.microsoft.com/troubleshoot/windows-server/networking/slow-performance-copy-data-tcp-server-sockets-api
-
-   Work-around: Make the Socket Send Buffer Size Larger Than the Program Send
-   Buffer Size
-
-   The problem described in this knowledge-base is applied only to pre-Vista
-   Windows. Following function trying to detect OS version and skips
-   SO_SNDBUF adjustment for Windows Vista and above.
-*/
-
-void Curl_sndbuf_init(curl_socket_t sockfd)
-{
-  int val = CURL_MAX_WRITE_SIZE + 32;
-  int curval = 0;
-  int curlen = sizeof(curval);
-
-  if(Curl_isVistaOrGreater)
-    return;
-
-  if(getsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, (char *)&curval, &curlen) == 0)
-    if(curval > val)
-      return;
-
-  setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, (const char *)&val, sizeof(val));
-}
-#endif /* USE_WINSOCK */
 
 /*
  * Curl_parse_interface()
@@ -1023,7 +993,7 @@ static void set_local_ip(struct Curl_cfilter *cf,
 
 #ifdef HAVE_GETSOCKNAME
   if((ctx->sock != CURL_SOCKET_BAD) &&
-     !(data->conn->handler->protocol & CURLPROTO_TFTP)) {
+     !(data->conn->scheme->protocol & CURLPROTO_TFTP)) {
     /* TFTP does not connect, so it cannot get the IP like this */
 
     char buffer[STRERROR_LEN];
@@ -1077,7 +1047,6 @@ static CURLcode cf_socket_open(struct Curl_cfilter *cf,
   CURLcode result = CURLE_COULDNT_CONNECT;
   bool is_tcp;
 
-  (void)data;
   DEBUGASSERT(ctx->sock == CURL_SOCKET_BAD);
   ctx->started_at = *Curl_pgrs_now(data);
 #ifdef SOCK_NONBLOCK
@@ -1133,8 +1102,6 @@ static CURLcode cf_socket_open(struct Curl_cfilter *cf,
     tcpnodelay(cf, data, ctx->sock);
 
   nosigpipe(cf, data, ctx->sock);
-
-  Curl_sndbuf_init(ctx->sock);
 
   if(is_tcp && data->set.tcp_keepalive)
     tcpkeepalive(cf, data, ctx->sock);
@@ -1277,7 +1244,6 @@ static CURLcode cf_tcp_connect(struct Curl_cfilter *cf,
   CURLcode result = CURLE_COULDNT_CONNECT;
   int rc = 0;
 
-  (void)data;
   if(cf->connected) {
     *done = TRUE;
     return CURLE_OK;
@@ -1297,7 +1263,7 @@ static CURLcode cf_tcp_connect(struct Curl_cfilter *cf,
     }
 
     /* Connect TCP socket */
-    rc = do_connect(cf, data, cf->conn->bits.tcp_fastopen);
+    rc = do_connect(cf, data, (bool)cf->conn->bits.tcp_fastopen);
     error = SOCKERRNO;
     set_local_ip(cf, data);
     CURL_TRC_CF(data, cf, "local address %s port %d...",
@@ -1627,7 +1593,7 @@ static bool cf_socket_conn_is_alive(struct Curl_cfilter *cf,
   int r;
 
   *input_pending = FALSE;
-  (void)data;
+
   if(!ctx || ctx->sock == CURL_SOCKET_BAD)
     return FALSE;
 

@@ -96,9 +96,6 @@
 /* Define if you have the `timeval' struct. */
 #define HAVE_STRUCT_TIMEVAL
 
-/* Define if you have the <inttypes.h> header file. */
-#define HAVE_INTTYPES_H
-
 /* Define if you have the <io.h> header file. */
 #undef HAVE_IO_H
 
@@ -164,9 +161,6 @@
 
 /* The size of `int', as computed by sizeof. */
 #define SIZEOF_INT 4
-
-/* The size of `long long', as computed by sizeof. */
-#undef SIZEOF_LONG_LONG
 
 /* The size of `size_t', as computed by sizeof. */
 #define SIZEOF_SIZE_T 4
