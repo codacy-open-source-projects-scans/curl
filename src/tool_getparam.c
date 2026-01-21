@@ -381,10 +381,9 @@ static const struct LongShort aliases[]= {
  *
  * Unit test 1394
  */
-UNITTEST
-ParameterError parse_cert_parameter(const char *cert_parameter,
-                                    char **certname,
-                                    char **passphrase)
+UNITTEST ParameterError parse_cert_parameter(const char *cert_parameter,
+                                             char **certname,
+                                             char **passphrase)
 {
   size_t param_length = strlen(cert_parameter);
   size_t span;
@@ -3059,8 +3058,7 @@ ParameterError parse_args(int argc, argv_item_t argv[])
   ParameterError result = PARAM_OK;
   struct OperationConfig *config = global->first;
 
-  stillflags = TRUE;
-  for(i = 1; i < argc && !result; i++) {
+  for(i = 1, stillflags = TRUE; i < argc && !result; i++) {
     orig_opt = convert_tchar_to_UTF8(argv[i]);
     if(!orig_opt)
       return PARAM_NO_MEM;
