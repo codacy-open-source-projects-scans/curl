@@ -1217,4 +1217,20 @@ typedef struct sockaddr_un {
 #  define CURL_INLINE /* empty */
 #endif
 
+/* Detect if compiler supports C99 variadic macros */
+#if (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) || \
+  defined(_MSC_VER)
+#define CURL_HAVE_MACRO_VARARG
+#endif
+
+#if !defined(CURL_HAVE_MACRO_VARARG) || \
+  (defined(CURL_HAVE_MACRO_VARARG) && !defined(CURL_DISABLE_VERBOSE_STRINGS))
+#define CURLVERBOSE
+#define VERBOSE(x) x
+#define NOVERBOSE(x) Curl_nop_stmt
+#else
+#define VERBOSE(x) Curl_nop_stmt
+#define NOVERBOSE(x) x
+#endif
+
 #endif /* HEADER_CURL_SETUP_H */
