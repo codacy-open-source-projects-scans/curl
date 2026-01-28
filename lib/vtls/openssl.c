@@ -3371,32 +3371,42 @@ ossl_init_session_and_alpns(struct ossl_ctx *octx,
                               sizeof(error_buffer)));
         }
         else {
-          infof(data, "SSL reusing session with ALPN '%s'",
-                scs->alpn ? scs->alpn : "-");
-          octx->reused_session = TRUE;
+          if(conn_cfg->verifypeer &&
+             (SSL_get_verify_result(octx->ssl) != X509_V_OK)) {
+            /* Session was from unverified connection, cannot reuse here */
+            SSL_set_session(octx->ssl, NULL);
+            infof(data, "SSL session not peer verified, not reusing");
+          }
+          else {
+            infof(data, "SSL reusing session with ALPN '%s'",
+                  scs->alpn ? scs->alpn : "-");
+            octx->reused_session = TRUE;
+            infof(data, "SSL verify result: %lx",
+                  SSL_get_verify_result(octx->ssl));
 #ifdef HAVE_OPENSSL_EARLYDATA
-          if(ssl_config->earlydata && scs->alpn &&
-             SSL_SESSION_get_max_early_data(ssl_session) &&
-             !cf->conn->connect_only &&
-             (SSL_version(octx->ssl) == TLS1_3_VERSION)) {
-            bool do_early_data = FALSE;
-            if(sess_reuse_cb) {
-              result = sess_reuse_cb(cf, data, &alpns, scs, &do_early_data);
-              if(result) {
-                SSL_SESSION_free(ssl_session);
-                return result;
+            if(ssl_config->earlydata && scs->alpn &&
+               SSL_SESSION_get_max_early_data(ssl_session) &&
+               !cf->conn->connect_only &&
+               (SSL_version(octx->ssl) == TLS1_3_VERSION)) {
+              bool do_early_data = FALSE;
+              if(sess_reuse_cb) {
+                result = sess_reuse_cb(cf, data, &alpns, scs, &do_early_data);
+                if(result) {
+                  SSL_SESSION_free(ssl_session);
+                  return result;
+                }
+              }
+              if(do_early_data) {
+                /* We only try the ALPN protocol the session used before,
+                 * otherwise we might send early data for the wrong protocol */
+                Curl_alpn_restrict_to(&alpns, scs->alpn);
               }
             }
-            if(do_early_data) {
-              /* We only try the ALPN protocol the session used before,
-               * otherwise we might send early data for the wrong protocol */
-              Curl_alpn_restrict_to(&alpns, scs->alpn);
-            }
-          }
 #else
-          (void)ssl_config;
-          (void)sess_reuse_cb;
+            (void)ssl_config;
+            (void)sess_reuse_cb;
 #endif
+          }
         }
         SSL_SESSION_free(ssl_session);
       }
@@ -3610,11 +3620,11 @@ static CURLcode ossl_init_method(struct Curl_cfilter *cf,
 
   *pmethod = NULL;
   *pssl_version_min = conn_config->version;
+  DEBUGASSERT(conn_config->version != CURL_SSLVERSION_DEFAULT);
   switch(peer->transport) {
   case TRNSPRT_TCP:
     /* check to see if we have been told to use an explicit SSL/TLS version */
     switch(*pssl_version_min) {
-    case CURL_SSLVERSION_DEFAULT:
     case CURL_SSLVERSION_TLSv1:
     case CURL_SSLVERSION_TLSv1_0:
     case CURL_SSLVERSION_TLSv1_1:
@@ -3760,13 +3770,13 @@ CURLcode Curl_ossl_ctx_init(struct ossl_ctx *octx,
   if(!ssl_config->enable_beast)
     ctx_options &= ~(ctx_option_t)SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS;
 
+  DEBUGASSERT(ssl_version_min != CURL_SSLVERSION_DEFAULT);
   switch(ssl_version_min) {
   case CURL_SSLVERSION_SSLv2:
   case CURL_SSLVERSION_SSLv3:
     return CURLE_NOT_BUILT_IN;
 
     /* "--tlsv<x.y>" options mean TLS >= version <x.y> */
-  case CURL_SSLVERSION_DEFAULT:
   case CURL_SSLVERSION_TLSv1:   /* TLS >= version 1.0 */
   case CURL_SSLVERSION_TLSv1_0: /* TLS >= version 1.0 */
   case CURL_SSLVERSION_TLSv1_1: /* TLS >= version 1.1 */
@@ -4681,8 +4691,15 @@ static CURLcode ossl_apple_verify(struct Curl_cfilter *cf,
 
   if(!chain.num_certs &&
      (conn_config->verifypeer || conn_config->verifyhost)) {
-    failf(data, "SSL: could not get peer certificate");
-    result = CURLE_PEER_FAILED_VERIFICATION;
+    if(!octx->reused_session) {
+      failf(data, "SSL: could not get peer certificate chain");
+      result = CURLE_PEER_FAILED_VERIFICATION;
+    }
+    else {
+      /* when session was reused, there is no peer cert chain */
+      *pverified = FALSE;
+      return CURLE_OK;
+    }
   }
   else {
 #ifdef HAVE_BORINGSSL_LIKE
@@ -4758,6 +4775,7 @@ CURLcode Curl_ossl_check_peer_cert(struct Curl_cfilter *cf,
 
   ossl_verify = SSL_get_verify_result(octx->ssl);
   ssl_config->certverifyresult = ossl_verify;
+  infof(data, "OpenSSL verify result: %lx", ossl_verify);
 
   verified = (ossl_verify == X509_V_OK);
   if(verified)
