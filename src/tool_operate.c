@@ -146,7 +146,7 @@ static bool is_pkcs11_uri(const char *string)
  *
  */
 static curl_off_t vms_realfilesize(const char *name,
-                                   const struct_stat *stat_buf)
+                                   const curl_struct_stat *stat_buf)
 {
   char buffer[8192];
   curl_off_t count;
@@ -176,7 +176,8 @@ static curl_off_t vms_realfilesize(const char *name,
  *  if not to call a routine to get the correct size.
  *
  */
-static curl_off_t VmsSpecialSize(const char *name, const struct_stat *stat_buf)
+static curl_off_t VmsSpecialSize(const char *name,
+                                 const curl_struct_stat *stat_buf)
 {
   switch(stat_buf->st_fab_rfm) {
   case FAB$C_VAR:
@@ -247,7 +248,7 @@ static struct per_transfer *del_per_transfer(struct per_transfer *per)
 static CURLcode pre_transfer(struct per_transfer *per)
 {
   curl_off_t uploadfilesize = -1;
-  struct_stat fileinfo;
+  curl_struct_stat fileinfo;
   CURLcode result = CURLE_OK;
 
   if(per->uploadfile && !stdin_upload(per->uploadfile)) {
@@ -284,7 +285,7 @@ static CURLcode pre_transfer(struct per_transfer *per)
     if(per->infd == -1)
 #else
       per->infd = curlx_open(per->uploadfile, O_RDONLY | CURL_O_BINARY);
-    if((per->infd == -1) || fstat(per->infd, &fileinfo))
+    if((per->infd == -1) || curlx_fstat(per->infd, &fileinfo))
 #endif
     {
       helpf("cannot open '%s'", per->uploadfile);
@@ -547,11 +548,11 @@ static CURLcode retrycheck(struct OperationConfig *config,
     }
 
     if(truncate && outs->bytes && outs->filename && outs->stream) {
-      struct_stat fileinfo;
+      curl_struct_stat fileinfo;
 
       /* The output can be a named pipe or a character device etc that
          cannot be truncated. Only truncate regular files. */
-      if(!fstat(fileno(outs->stream), &fileinfo) &&
+      if(!curlx_fstat(fileno(outs->stream), &fileinfo) &&
          S_ISREG(fileinfo.st_mode)) {
         int rc;
         /* We have written data to an output file, we truncate file */
@@ -717,7 +718,7 @@ static CURLcode post_per_transfer(struct per_transfer *per,
       errorf("curl: (%d) Failed writing body", result);
     }
     if(result && config->rm_partial) {
-      struct_stat st;
+      curl_struct_stat st;
       if(!curlx_stat(outs->filename, &st) && S_ISREG(st.st_mode)) {
         if(!unlink(outs->filename))
           notef("Removed output file: %s", outs->filename);
@@ -1039,7 +1040,7 @@ static CURLcode setup_outfile(struct OperationConfig *config,
   }
 
   if(config->skip_existing) {
-    struct_stat fileinfo;
+    curl_struct_stat fileinfo;
     if(!curlx_stat(per->outfile, &fileinfo)) {
       /* file is present */
       notef("skips transfer, \"%s\" exists locally", per->outfile);
@@ -1051,7 +1052,7 @@ static CURLcode setup_outfile(struct OperationConfig *config,
   if(config->resume_from_current) {
     /* We are told to continue from where we are now. Get the size
        of the file as it is now and open it for append instead */
-    struct_stat fileinfo;
+    curl_struct_stat fileinfo;
     /* VMS -- Danger, the filesize is only valid for stream files */
     if(curlx_stat(per->outfile, &fileinfo) == 0)
       /* set offset to current file size: */
@@ -1753,7 +1754,7 @@ static CURLcode check_finished(struct parastate *s)
       struct per_transfer *ended;
       CURL *easy = msg->easy_handle;
       CURLcode tres = msg->data.result;
-      curl_easy_getinfo(easy, CURLINFO_PRIVATE, (void *)&ended);
+      curl_easy_getinfo(easy, CURLINFO_PRIVATE, &ended);
       curl_multi_remove_handle(s->multi, easy);
 
       if(ended->abort && (tres == CURLE_ABORTED_BY_CALLBACK)) {
@@ -2022,7 +2023,7 @@ static CURLcode is_using_schannel(int *pusing)
   if(using_schannel == -1) {
     CURL *curltls = curl_easy_init();
     /* The TLS backend remains, so keep the info */
-    struct curl_tlssessioninfo *tls_backend_info = NULL;
+    const struct curl_tlssessioninfo *tls_backend_info = NULL;
 
     if(!curltls)
       result = CURLE_OUT_OF_MEMORY;

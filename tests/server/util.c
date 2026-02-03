@@ -33,38 +33,11 @@
 #include <share.h>
 #endif
 
-/* This function returns a pointer to STATIC memory. It converts the given
- * binary lump to a hex formatted string usable for output in logs or
- * whatever.
- */
-char *data_to_hex(char *data, size_t len)
-{
-  static char buf[256 * 3];
-  size_t i;
-  char *optr = buf;
-  char *iptr = data;
-
-  if(len > 255)
-    len = 255;
-
-  for(i = 0; i < len; i++) {
-    if((data[i] >= 0x20) && (data[i] < 0x7f))
-      *optr++ = *iptr++;
-    else {
-      snprintf(optr, 4, "%%%02x", (unsigned char)*iptr++);
-      optr += 3;
-    }
-  }
-  *optr = 0; /* in case no sprintf was used */
-
-  return buf;
-}
-
-void loghex(unsigned char *buffer, ssize_t len)
+void loghex(const unsigned char *buffer, ssize_t len)
 {
   char data[12000];
   ssize_t i;
-  unsigned char *ptr = buffer;
+  const unsigned char *ptr = buffer;
   char *optr = data;
   ssize_t width = 0;
   int left = sizeof(data);
@@ -697,7 +670,7 @@ int bind_unix_socket(curl_socket_t sock, const char *unix_socket,
   curlx_strcopy(sau->sun_path, sizeof(sau->sun_path), unix_socket, len);
   rc = bind(sock, (struct sockaddr *)sau, sizeof(struct sockaddr_un));
   if(rc && SOCKERRNO == SOCKEADDRINUSE) {
-    struct_stat statbuf;
+    curl_struct_stat statbuf;
     /* socket already exists. Perhaps it is stale? */
     curl_socket_t unixfd = socket(AF_UNIX, SOCK_STREAM, 0);
     if(CURL_SOCKET_BAD == unixfd) {
@@ -717,7 +690,7 @@ int bind_unix_socket(curl_socket_t sock, const char *unix_socket,
     /* socket server is not alive, now check if it was actually a socket. */
 #ifdef _WIN32
     /* Windows does not have lstat function. */
-    rc = curlx_win32_stat(unix_socket, &statbuf);
+    rc = curlx_stat(unix_socket, &statbuf);
 #else
     rc = lstat(unix_socket, &statbuf);
 #endif

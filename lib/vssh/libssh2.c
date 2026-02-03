@@ -737,7 +737,7 @@ static CURLcode sftp_quote(struct Curl_easy *data,
    * 'sshc->quote_item' is already verified to be non-NULL before it
    * switched to this state.
    */
-  char *cmd = sshc->quote_item->data;
+  const char *cmd = sshc->quote_item->data;
   sshc->acceptfail = FALSE;
 
   /* if a command starts with an asterisk, which a legal SFTP command never
@@ -1089,7 +1089,7 @@ static CURLcode ssh_state_pkey_init(struct Curl_easy *data,
       /* To ponder about: should really the lib be messing about with the
          HOME environment variable etc? */
       char *home = curl_getenv("HOME");
-      struct_stat sbuf;
+      curl_struct_stat sbuf;
 
       /* If no private key file is specified, try some common paths. */
       if(home) {
@@ -1165,7 +1165,7 @@ static CURLcode sftp_quote_stat(struct Curl_easy *data,
                                 struct SSHPROTO *sshp,
                                 bool *blockp)
 {
-  char *cmd = sshc->quote_item->data;
+  const char *cmd = sshc->quote_item->data;
   sshc->acceptfail = FALSE;
 
   /* if a command starts with an asterisk, which a legal SFTP command never
