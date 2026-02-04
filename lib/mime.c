@@ -30,7 +30,7 @@ struct Curl_easy;
 #include "sendf.h"
 #include "curl_trc.h"
 #include "transfer.h"
-#include "strdup.h"
+#include "curlx/strdup.h"
 #include "curlx/basename.h"
 #include "curlx/strcopy.h"
 #include "curlx/fopen.h"
@@ -107,7 +107,7 @@ static const char aschex[] =
  * and CD/DVD images should be either a STREAM_LF format or a fixed format.
  *
  */
-curl_off_t VmsRealFileSize(const char *name, const curl_struct_stat *stat_buf)
+curl_off_t VmsRealFileSize(const char *name, const curlx_struct_stat *stat_buf)
 {
   char buffer[8192];
   curl_off_t count;
@@ -137,7 +137,7 @@ curl_off_t VmsRealFileSize(const char *name, const curl_struct_stat *stat_buf)
  *
  */
 static curl_off_t VmsSpecialSize(const char *name,
-                                 const curl_struct_stat *stat_buf)
+                                 const curlx_struct_stat *stat_buf)
 {
   switch(stat_buf->st_fab_rfm) {
   case FAB$C_VAR:
@@ -161,7 +161,7 @@ static curl_off_t VmsSpecialSize(const char *name,
  */
 static FILE *vmsfopenread(const char *file, const char *mode)
 {
-  curl_struct_stat statbuf;
+  curlx_struct_stat statbuf;
   int result;
 
   result = curlx_stat(file, &statbuf);
@@ -1281,7 +1281,7 @@ CURLcode curl_mime_data(curl_mimepart *part, const char *ptr, size_t datasize)
     if(datasize == CURL_ZERO_TERMINATED)
       datasize = strlen(ptr);
 
-    part->data = Curl_memdup0(ptr, datasize);
+    part->data = curlx_memdup0(ptr, datasize);
     if(!part->data)
       return CURLE_OUT_OF_MEMORY;
 
@@ -1308,7 +1308,7 @@ CURLcode curl_mime_filedata(curl_mimepart *part, const char *filename)
 
   if(filename) {
     char *base;
-    curl_struct_stat sbuf;
+    curlx_struct_stat sbuf;
 
     if(curlx_stat(filename, &sbuf))
       result = CURLE_READ_ERROR;
