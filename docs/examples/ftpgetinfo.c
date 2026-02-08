@@ -56,7 +56,7 @@ int main(void)
   const char *filename = strrchr(ftpurl, '/') + 1;
 
   result = curl_global_init(CURL_GLOBAL_ALL);
-  if(result)
+  if(result != CURLE_OK)
     return (int)result;
 
   curl = curl_easy_init();
@@ -75,16 +75,16 @@ int main(void)
 
     result = curl_easy_perform(curl);
 
-    if(CURLE_OK == result) {
+    if(result == CURLE_OK) {
       /* https://curl.se/libcurl/c/curl_easy_getinfo.html */
       result = curl_easy_getinfo(curl, CURLINFO_FILETIME, &filetime);
-      if((CURLE_OK == result) && (filetime >= 0)) {
+      if((result == CURLE_OK) && (filetime >= 0)) {
         time_t file_time = (time_t)filetime;
         printf("filetime %s: %s", filename, ctime(&file_time));
       }
       result = curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T,
                                  &filesize);
-      if((CURLE_OK == result) && (filesize > 0))
+      if((result == CURLE_OK) && (filesize > 0))
         printf("filesize %s: %" CURL_FORMAT_CURL_OFF_T " bytes\n",
                filename, filesize);
     }
