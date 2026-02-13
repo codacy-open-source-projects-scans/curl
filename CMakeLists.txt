@@ -149,6 +149,10 @@ else()
   set(CURL_OS "\"${CMAKE_SYSTEM_NAME}\"")
 endif()
 
+if(CURL_PATCHSTAMP)
+  set(CURL_PATCHSTAMP "\"${CURL_PATCHSTAMP}\"")
+endif()
+
 set(LIB_NAME "libcurl")
 set(EXE_NAME "curl")
 
@@ -197,8 +201,12 @@ if(WIN32)
 
   set(CURL_TARGET_WINDOWS_VERSION "" CACHE STRING "Minimum target Windows version as hex string")
   if(CURL_TARGET_WINDOWS_VERSION)
-    set_property(DIRECTORY APPEND PROPERTY COMPILE_DEFINITIONS "_WIN32_WINNT=${CURL_TARGET_WINDOWS_VERSION}")
-    list(APPEND CMAKE_REQUIRED_DEFINITIONS "-D_WIN32_WINNT=${CURL_TARGET_WINDOWS_VERSION}")  # Apply to all feature checks
+    if(CURL_TARGET_WINDOWS_VERSION MATCHES "^0x[0-9a-fA-F]+$")
+      set_property(DIRECTORY APPEND PROPERTY COMPILE_DEFINITIONS "_WIN32_WINNT=${CURL_TARGET_WINDOWS_VERSION}")
+      list(APPEND CMAKE_REQUIRED_DEFINITIONS "-D_WIN32_WINNT=${CURL_TARGET_WINDOWS_VERSION}")  # Apply to all feature checks
+    else()
+      message(WARNING "CURL_TARGET_WINDOWS_VERSION value '${CURL_TARGET_WINDOWS_VERSION}' is not a valid hex string.")
+    endif()
   endif()
 
   # Detect actual value of _WIN32_WINNT and store as HAVE_WIN32_WINNT
@@ -821,6 +829,9 @@ if(CURL_USE_OPENSSL)
   endif()
 
   if(HAVE_BORINGSSL)
+    if(BORINGSSL_VERSION)
+      set(CURL_BORINGSSL_VERSION "\"${BORINGSSL_VERSION}\"")
+    endif()
     set(_openssl "BoringSSL")
   elseif(HAVE_AWSLC)
     set(_openssl "AWS-LC")
