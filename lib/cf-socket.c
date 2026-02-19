@@ -96,6 +96,9 @@ static void tcpnodelay(struct Curl_cfilter *cf,
 #endif
 }
 
+#if defined(USE_WINSOCK) || defined(TCP_KEEPIDLE) || \
+  defined(TCP_KEEPALIVE) || defined(TCP_KEEPALIVE_THRESHOLD) || \
+  defined(TCP_KEEPINTVL) || defined(TCP_KEEPALIVE_ABORT_THRESHOLD)
 #if defined(USE_WINSOCK) || \
    (defined(__sun) && !defined(TCP_KEEPIDLE)) || \
    (defined(__DragonFly__) && __DragonFly_version < 500702) || \
@@ -105,6 +108,7 @@ static void tcpnodelay(struct Curl_cfilter *cf,
 #define KEEPALIVE_FACTOR(x) (x *= 1000)
 #else
 #define KEEPALIVE_FACTOR(x)
+#endif
 #endif
 
 static void tcpkeepalive(struct Curl_cfilter *cf,
@@ -332,6 +336,12 @@ static CURLcode socket_open(struct Curl_easy *data,
   }
   else {
     /* opensocket callback not set, so simply create the socket now */
+#ifdef DEBUGBUILD
+    if((addr->family == AF_INET6) && getenv("CURL_DBG_SOCK_FAIL_IPV6")) {
+      failf(data, "CURL_DBG_SOCK_FAIL_IPV6: failed to open socket");
+      return CURLE_COULDNT_CONNECT;
+    }
+#endif
     *sockfd = CURL_SOCKET(addr->family, addr->socktype, addr->protocol);
     if((*sockfd == CURL_SOCKET_BAD) && (SOCKERRNO == SOCKENOMEM))
       return CURLE_OUT_OF_MEMORY;
