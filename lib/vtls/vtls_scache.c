@@ -58,7 +58,7 @@ struct Curl_ssl_scache_peer {
   unsigned char key_salt[CURL_SHA256_DIGEST_LENGTH]; /* for entry export */
   unsigned char key_hmac[CURL_SHA256_DIGEST_LENGTH]; /* for entry export */
   size_t max_sessions;
-  long age;                /* just a number, the higher the more recent */
+  long age;                /* a number, the higher the more recent */
   BIT(hmac_set);           /* if key_salt and key_hmac are present */
   BIT(exportable);         /* sessions for this peer can be exported */
 };
@@ -288,7 +288,7 @@ CURLcode Curl_ssl_peer_key_make(struct Curl_cfilter *cf,
     goto out;
 
   *ppeer_key = curlx_dyn_take(&buf, &key_len);
-  /* we just added printable char, and dynbuf always null-terminates, no need
+  /* we added printable char, and dynbuf always null-terminates, no need
    * to track length */
 
 out:
@@ -1148,9 +1148,12 @@ CURLcode Curl_ssl_session_export(struct Curl_easy *data,
   struct Curl_ssl_scache_peer *peer;
   struct dynbuf sbuf, hbuf;
   struct Curl_llist_node *n;
-  size_t i, npeers = 0, ntickets = 0;
+  size_t i;
   curl_off_t now = time(NULL);
   CURLcode r = CURLE_OK;
+#ifdef CURLVERBOSE
+  size_t npeers = 0, ntickets = 0;
+#endif
 
   if(!export_fn)
     return CURLE_BAD_FUNCTION_ARGUMENT;
@@ -1173,7 +1176,7 @@ CURLcode Curl_ssl_session_export(struct Curl_easy *data,
     cf_scache_peer_remove_expired(peer, now);
     n = Curl_llist_head(&peer->sessions);
     if(n)
-      ++npeers;
+      VERBOSE(++npeers);
     while(n) {
       struct Curl_ssl_session *s = Curl_node_elem(n);
       if(!peer->hmac_set) {
@@ -1201,7 +1204,7 @@ CURLcode Curl_ssl_session_export(struct Curl_easy *data,
                     s->alpn, s->earlydata_max);
       if(r)
         goto out;
-      ++ntickets;
+      VERBOSE(++ntickets);
       n = Curl_node_next(n);
     }
   }

@@ -315,7 +315,7 @@ static CURLcode cr_eob_init(struct Curl_easy *data,
   struct cr_eob_ctx *ctx = reader->ctx;
   (void)data;
   /* The first char we read is the first on a line, as if we had
-   * read CRLF just before */
+   * read CRLF before */
   ctx->n_eob = 2;
   Curl_bufq_init2(&ctx->buf, (16 * 1024), 1, BUFQ_OPT_SOFT_LIMIT);
   return CURLE_OK;
@@ -354,7 +354,7 @@ static CURLcode cr_eob_read(struct Curl_easy *data,
     ctx->read_eos = eos;
     if(nread) {
       if(!ctx->n_eob && !memchr(buf, SMTP_EOB[0], nread)) {
-        /* not in the middle of a match, no EOB start found, just pass */
+        /* not in the middle of a match, no EOB start found, pass */
         *pnread = nread;
         *peos = FALSE;
         return CURLE_OK;
@@ -403,7 +403,7 @@ static CURLcode cr_eob_read(struct Curl_easy *data,
     CURL_TRC_SMTP(data, "auto-ending mail body with '\\r\\n.\\r\\n'");
     switch(ctx->n_eob) {
     case 2:
-      /* seen a CRLF at the end, just add the remainder */
+      /* seen a CRLF at the end, add the remainder */
       eob = &SMTP_EOB[2];
       break;
     case 3:
@@ -1061,9 +1061,9 @@ static CURLcode smtp_perform_mail(struct Curl_easy *data,
                          "MAIL FROM:%s%s%s%s%s%s",
                          from,                 /* Mandatory                 */
                          auth ? " AUTH=" : "", /* Optional on AUTH support  */
-                         auth ? auth : "",     /*                           */
+                         auth ? auth : "",
                          size ? " SIZE=" : "", /* Optional on SIZE support  */
-                         size ? size : "",     /*                           */
+                         size ? size : "",
                          utf8 ? " SMTPUTF8"    /* Internationalised mailbox */
                                : "");          /* included in our envelope  */
 

@@ -108,7 +108,7 @@ static CURLcode sslctx_function(CURL *curl, void *sslctx, void *pointer)
     printf("BIO_new_mem_buf failed\n");
   }
 
-  pkey = PEM_read_bio_PrivateKey(bio, NULL, NULL, NULL);
+  pkey = PEM_read_bio_PrivateKey(kbio, NULL, NULL, NULL);
   if(!pkey) {
     printf("Failed EVP_PKEY_new()\n");
   }
@@ -172,8 +172,8 @@ int main(void)
       printf("*** transfer failed ***\n");
 
     /* second try: retrieve page using user certificate and key -> succeeds to
-     * load the certificate and key by installing a function doing
-     * the necessary "modifications" to the SSL CONTEXT just before link init
+     * load the certificate and key by installing a function doing the
+     * necessary "modifications" to the SSL CONTEXT before link init
      */
     curl_easy_setopt(curl, CURLOPT_SSL_CTX_FUNCTION, sslctx_function);
     result = curl_easy_perform(curl);

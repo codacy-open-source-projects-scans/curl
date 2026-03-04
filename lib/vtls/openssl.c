@@ -264,7 +264,7 @@ static CURLcode X509V3_ext(struct Curl_easy *data,
     return result;
 
   for(i = 0; i < (int)sk_X509_EXTENSION_num(exts); i++) {
-    ASN1_OBJECT *obj;
+    const ASN1_OBJECT *obj;
     X509_EXTENSION *ext = sk_X509_EXTENSION_value(exts, (ossl_valsize_t)i);
     BUF_MEM *biomem;
     char namebuf[128];
@@ -280,7 +280,8 @@ static CURLcode X509V3_ext(struct Curl_easy *data,
       namebuf[sizeof(namebuf) - 1] = 0;
 
     if(!X509V3_EXT_print(bio_out, ext, 0, 0))
-      ASN1_STRING_print(bio_out, (ASN1_STRING *)X509_EXTENSION_get_data(ext));
+      ASN1_STRING_print(bio_out,
+                        (const ASN1_STRING *)X509_EXTENSION_get_data(ext));
 
     BIO_get_mem_ptr(bio_out, &biomem);
     result = Curl_ssl_push_certinfo_len(data, certnum, namebuf, biomem->data,
@@ -1626,7 +1627,7 @@ static CURLcode client_cert(struct Curl_easy *data,
 
 #ifdef CURLVERBOSE
 /* returns non-zero on failure */
-static CURLcode x509_name_oneline(X509_NAME *a, struct dynbuf *d)
+static CURLcode x509_name_oneline(const X509_NAME *a, struct dynbuf *d)
 {
   BIO *bio_out = BIO_new(BIO_s_mem());
   BUF_MEM *biomem;
@@ -1955,7 +1956,7 @@ static CURLcode ossl_shutdown(struct Curl_cfilter *cf,
       CURL_TRC_CF(data, cf, "SSL shutdown not received, but closed");
     *done = TRUE;
     break;
-  case SSL_ERROR_NONE: /* just did not get anything */
+  case SSL_ERROR_NONE: /* did not get anything */
   case SSL_ERROR_WANT_READ:
     /* SSL has send its notify and now wants to read the reply
      * from the server. We are not really interested in that. */
@@ -2190,7 +2191,7 @@ static CURLcode ossl_verifyhost(struct Curl_easy *data,
     bool free_cn = FALSE;
 
     /* The following is done because of a bug in 0.9.6b */
-    X509_NAME *name = X509_get_subject_name(server_cert);
+    const X509_NAME *name = X509_get_subject_name(server_cert);
     if(name) {
       int j;
       while((j = X509_NAME_get_index_by_NID(name, NID_commonName, i)) >= 0)
@@ -2202,7 +2203,7 @@ static CURLcode ossl_verifyhost(struct Curl_easy *data,
        UTF8, etc. */
 
     if(i >= 0) {
-      ASN1_STRING *tmp =
+      const ASN1_STRING *tmp =
         X509_NAME_ENTRY_get_data(X509_NAME_get_entry(name, i));
 
       /* In OpenSSL 0.9.7d and earlier, ASN1_STRING_to_UTF8 fails if the input
@@ -2592,18 +2593,20 @@ static void ossl_trace(int direction, int ssl_ver, int content_type,
 
     if(content_type == SSL3_RT_CHANGE_CIPHER_SPEC) {
       if(len) {
-        msg_type = *(const char *)buf;
+        msg_type = *(const unsigned char *)buf;
         msg_name = "Change cipher spec";
       }
     }
     else if(content_type == SSL3_RT_ALERT) {
       if(len >= 2) {
-        msg_type = (((const char *)buf)[0] << 8) + ((const char *)buf)[1];
+        msg_type =
+          (((const unsigned char *)buf)[0] << 8) +
+           ((const unsigned char *)buf)[1];
         msg_name = SSL_alert_desc_string_long(msg_type);
       }
     }
     else if(len) {
-      msg_type = *(const char *)buf;
+      msg_type = *(const unsigned char *)buf;
       msg_name = ssl_msg_type(ssl_ver, msg_type);
     }
 
@@ -2789,7 +2792,7 @@ static CURLcode load_cacert_from_memory(X509_STORE *store,
   BIO *cbio = NULL;
   STACK_OF(X509_INFO) *inf = NULL;
 
-  /* everything else is just a reference */
+  /* everything else is a reference */
   int i, count = 0;
   X509_INFO *itmp = NULL;
 
@@ -2917,8 +2920,8 @@ static CURLcode ossl_win_load_store(struct Curl_easy *data,
        * depending on what is found. For more details see
        * CertGetEnhancedKeyUsage doc.
        */
-      if(CertGetEnhancedKeyUsage(pContext, 0, NULL, &req_size)) {
-        if(req_size && req_size > enhkey_usage_size) {
+      if(CertGetEnhancedKeyUsage(pContext, 0, NULL, &req_size) && req_size) {
+        if(req_size > enhkey_usage_size) {
           void *tmp = curlx_realloc(enhkey_usage, req_size);
 
           if(!tmp) {
@@ -3398,7 +3401,7 @@ ossl_init_session_and_alpns(struct ossl_ctx *octx,
       SSL_SESSION *ssl_session = NULL;
 
       /* If OpenSSL does not accept the session from the cache, this
-       * is not an error. We just continue without it. */
+       * is not an error. We continue without it. */
       ssl_session = d2i_SSL_SESSION(NULL, &der_sessionid,
                                     (long)der_sessionid_size);
       if(ssl_session) {
@@ -3776,8 +3779,8 @@ CURLcode Curl_ossl_ctx_init(struct ossl_ctx *octx,
 
      The enabled extension concerns the session management. I wonder how often
      libcurl stops a connection and then resumes a TLS session. Also, sending
-     the session data is some overhead. I suggest that you just use your
-     proposed patch (which explicitly disables TICKET).
+     the session data is some overhead. I suggest that you use your proposed
+     patch (which explicitly disables TICKET).
 
      If someone writes an application with libcurl and OpenSSL who wants to
      enable the feature, one can do this in the SSL callback.
@@ -5382,7 +5385,7 @@ static CURLcode ossl_random(struct Curl_easy *data,
     if(!rand_enough())
       return CURLE_FAILED_INIT;
   }
-  /* RAND_bytes() returns 1 on success, 0 otherwise.  */
+  /* RAND_bytes() returns 1 on success, 0 otherwise. */
   rc = RAND_bytes(entropy, (ossl_valsize_t)curlx_uztosi(length));
   return rc == 1 ? CURLE_OK : CURLE_FAILED_INIT;
 }

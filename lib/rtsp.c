@@ -774,6 +774,18 @@ static CURLcode rtsp_filter_rtp(struct Curl_easy *data,
         break;
       rtp_buf = curlx_dyn_ptr(&rtspc->buf);
       rtspc->rtp_len = RTP_PKT_LENGTH(rtp_buf) + 4;
+      if(rtspc->rtp_len == 4) {
+        /* zero-length payload, the 4-byte header is the complete RTP
+           message. Dispatch immediately without entering RTP_PARSE_DATA. */
+        DEBUGF(infof(data, "RTP write channel %d rtp_len %zu (no payload)",
+                     rtspc->rtp_channel, rtspc->rtp_len));
+        result = rtp_client_write(data, rtp_buf, rtspc->rtp_len);
+        curlx_dyn_free(&rtspc->buf);
+        rtspc->state = RTP_PARSE_SKIP;
+        if(result)
+          goto out;
+        break;
+      }
       rtspc->state = RTP_PARSE_DATA;
       break;
     }
@@ -914,7 +926,7 @@ static CURLcode rtsp_rtp_write_resp(struct Curl_easy *data,
 out:
   if((data->set.rtspreq == RTSPREQ_RECEIVE) &&
      (rtspc->state == RTP_PARSE_SKIP)) {
-    /* In special mode RECEIVE, we just process one chunk of network
+    /* In special mode RECEIVE, we process one chunk of network
      * data, so we stop the transfer here, if we have no incomplete
      * RTP message pending. */
     data->req.download_done = TRUE;

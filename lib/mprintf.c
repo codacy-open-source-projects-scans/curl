@@ -26,16 +26,17 @@
 #include "curlx/dynbuf.h"
 #include "curl_printf.h"
 #include "curlx/strparse.h"
+#include "curlx/snprintf.h"  /* for curlx_win32_snprintf() */
 
 #define BUFFSIZE 326 /* buffer for long-to-str and float-to-str calcs, should
                         fit negative DBL_MAX (317 letters) */
 #define MAX_PARAMETERS 128 /* number of input arguments */
 #define MAX_SEGMENTS   128 /* number of output segments */
 
-/* Lower-case digits.  */
+/* Lower-case digits. */
 const unsigned char Curl_ldigits[] = "0123456789abcdef";
 
-/* Upper-case digits.  */
+/* Upper-case digits. */
 const unsigned char Curl_udigits[] = "0123456789ABCDEF";
 
 #define OUTCHAR(x)                                       \
@@ -131,9 +132,9 @@ struct asprintf {
 };
 
 /* the provided input number is 1-based but this returns the number 0-based.
-
-   returns -1 if no valid number was provided.
-*/
+ *
+ * returns -1 if no valid number was provided.
+ */
 static int dollarstring(const char *p, const char **end)
 {
   curl_off_t num;
@@ -223,7 +224,7 @@ static int parsefmt(const char *format,
             /* illegal combo */
             return PFMT_DOLLAR;
 
-          /* we got no positional, just get the next arg */
+          /* we got no positional, get the next arg */
           param = -1;
           use_dollar = DOLLAR_NOPE;
         }
@@ -596,8 +597,8 @@ static int parsefmt(const char *format,
 }
 
 struct mproperty {
-  int width;            /* Width of a field.  */
-  int prec;             /* Precision of a field.  */
+  int width;            /* Width of a field. */
+  int prec;             /* Precision of a field. */
   unsigned int flags;
 };
 
@@ -607,9 +608,9 @@ static bool out_double(void *userp,
                        double dnum,
                        char *work, int *donep)
 {
-  char formatbuf[32] = "%";
-  char *fptr = &formatbuf[1];
-  size_t left = sizeof(formatbuf) - strlen(formatbuf);
+  char fmt[32] = "%";
+  char *fptr = &fmt[1];
+  size_t left = sizeof(fmt) - strlen(fmt);
   int flags = p->flags;
   int width = p->width;
   int prec = p->prec;
@@ -671,25 +672,23 @@ static bool out_double(void *userp,
 
   /* NOTE NOTE NOTE!! Not all sprintf implementations return number of
      output characters */
-#ifdef HAVE_SNPRINTF
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
 #endif
+#ifdef _WIN32
+  curlx_win32_snprintf(work, BUFFSIZE, fmt, dnum);
+#elif defined(HAVE_SNPRINTF)
+  /* !checksrc! disable BANNEDFUNC 1 */
   /* !checksrc! disable LONGLINE */
   /* NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling) */
-  (snprintf)(work, BUFFSIZE, formatbuf, dnum);
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
-#ifdef _WIN32
-  /* Old versions of the Windows CRT do not terminate the snprintf output
-     buffer if it reaches the max size so we do that here. */
-  work[BUFFSIZE - 1] = 0;
-#endif
+  snprintf(work, BUFFSIZE, fmt, dnum);
 #else
   /* float and double outputs do not work without snprintf support */
   work[0] = 0;
+#endif
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
 #endif
   DEBUGASSERT(strlen(work) < BUFFSIZE);
   while(*work) {
@@ -722,7 +721,7 @@ static bool out_number(void *userp,
   char *w;
 
   if(flags & FLAGS_CHAR) {
-    /* Character.  */
+    /* Character. */
     if(!(flags & FLAGS_LEFT))
       while(--width > 0)
         OUTCHAR(' ');
@@ -746,11 +745,11 @@ static bool out_number(void *userp,
     ;
 
   else {
-    /* Decimal integer.  */
+    /* Decimal integer. */
     is_neg = (nums < 0);
     if(is_neg) {
       /* signed_num might fail to hold absolute negative minimum by 1 */
-      int64_t signed_num; /* Used to convert negative in positive.  */
+      int64_t signed_num; /* Used to convert negative in positive. */
       signed_num = nums + (int64_t)1;
       signed_num = -signed_num;
       num = (uint64_t)signed_num;
@@ -758,11 +757,11 @@ static bool out_number(void *userp,
     }
   }
 
-  /* Supply a default precision if none was given.  */
+  /* Supply a default precision if none was given. */
   if(prec == -1)
     prec = 1;
 
-  /* Put the number in WORK.  */
+  /* Put the number in WORK. */
   w = workend;
   DEBUGASSERT(base <= 16);
   switch(base) {
@@ -822,7 +821,7 @@ static bool out_number(void *userp,
     while(width-- > 0)
       OUTCHAR('0');
 
-  /* Write the number.  */
+  /* Write the number. */
   while(++w <= workend) {
     OUTCHAR(*w);
   }
@@ -848,7 +847,7 @@ static bool out_string(void *userp,
   size_t len;
 
   if(!str) {
-    /* Write null string if there is space.  */
+    /* Write null string if there is space. */
     if(prec == -1 || prec >= (int)sizeof(nilstr) - 1) {
       str = nilstr;
       len = sizeof(nilstr) - 1;
@@ -895,17 +894,17 @@ static bool out_pointer(void *userp,
                         char *work,
                         int *donep)
 {
-  /* Generic pointer.  */
+  /* Generic pointer. */
   if(ptr) {
     size_t num = (size_t)ptr;
 
-    /* If the pointer is not NULL, write it as a %#x spec.  */
+    /* If the pointer is not NULL, write it as a %#x spec. */
     p->flags |= FLAGS_HEX | FLAGS_ALT;
     if(out_number(userp, stream, p, num, 0, work, donep))
       return TRUE;
   }
   else {
-    /* Write "(nil)" for a nil pointer.  */
+    /* Write "(nil)" for a nil pointer. */
     const char *point;
     int width = p->width;
     int flags = p->flags;
@@ -939,14 +938,14 @@ static bool out_pointer(void *userp,
  * All output is sent to the 'stream()' callback, one byte at a time.
  */
 
-static int formatf(void *userp, /* untouched by format(), just sent to the
+static int formatf(void *userp, /* untouched by format(), sent to the
                                    stream() function in the second argument */
                    /* function pointer called for each output character */
                    int (*stream)(unsigned char, void *),
                    const char *format, /* %-formatted string */
                    va_list ap_save) /* list of parameters */
 {
-  int done = 0;   /* number of characters written  */
+  int done = 0;   /* number of characters written */
   int i;
   int ocount = 0; /* number of output segments */
   int icount = 0; /* number of input arguments */
@@ -973,7 +972,7 @@ static int formatf(void *userp, /* untouched by format(), just sent to the
         done++;
       }
       if(optr->flags & FLAGS_SUBSTR)
-        /* this is just a substring */
+        /* this is a substring */
         continue;
     }
 
@@ -1042,7 +1041,7 @@ static int formatf(void *userp, /* untouched by format(), just sent to the
       break;
 
     case MTYPE_INTPTR:
-      /* Answer the count of characters written.  */
+      /* Answer the count of characters written. */
       if(p.flags & FLAGS_LONGLONG)
         *(int64_t *)iptr->val.ptr = (int64_t)done;
       else

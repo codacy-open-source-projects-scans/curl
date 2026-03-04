@@ -1176,7 +1176,7 @@ static CURLcode imap_state_login_resp(struct Curl_easy *data,
   return result;
 }
 
-/* Detect IMAP listings vs. downloading a single email  */
+/* Detect IMAP listings vs. downloading a single email */
 static bool is_custom_fetch_listing_match(const char *params)
 {
   /* match " 1:* (FLAGS ..." or " 1,2,3 (FLAGS ..." */
@@ -1322,12 +1322,12 @@ static CURLcode imap_state_listsearch_resp(struct Curl_easy *data,
         imap_state(data, imapc, IMAP_STOP);
       }
       else {
-        /* Failed to parse literal, just write the line */
+        /* Failed to parse literal, write the line */
         result = Curl_client_write(data, CLIENTWRITE_BODY, line, len);
       }
     }
     else {
-      /* No literal, just write the line as-is */
+      /* No literal, write the line as-is */
       result = Curl_client_write(data, CLIENTWRITE_BODY, line, len);
     }
   }
@@ -1455,7 +1455,7 @@ static CURLcode imap_state_fetch_resp(struct Curl_easy *data,
       infof(data, "Written %zu bytes, %" FMT_OFF_TU
             " bytes are left for transfer", chunk, size - chunk);
 
-      /* Have we used the entire overflow or just part of it?*/
+      /* Have we used the entire overflow or part of it?*/
       if(pp->overflow > chunk) {
         /* remember the remaining trailing overflow data */
         pp->overflow -= chunk;
@@ -2323,7 +2323,6 @@ static const struct Curl_protocol Curl_protocol_imap = {
 };
 
 #endif /* CURL_DISABLE_IMAP */
-
 
 /*
  * IMAP protocol handler.

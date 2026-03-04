@@ -251,20 +251,22 @@ if(PICKY_COMPILER)
           -Wno-format-signedness           # clang 19.1  gcc  5.1  appleclang 17.0  # In clang-cl enums are signed ints by default
         )
       endif()
-      if(CMAKE_C_COMPILER_ID STREQUAL "Clang"      AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 21.1)
+      if((CMAKE_C_COMPILER_ID STREQUAL "Clang"      AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 21.1) OR
+         (CMAKE_C_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 26.4))
         list(APPEND _picky_enable
-          -Warray-compare                  # clang 20.1  gcc 12.0  appleclang ?
-          -Wc++-hidden-decl                # clang 21.1            appleclang ?
-          -Wno-implicit-void-ptr-cast      # clang 21.1            appleclang ?
-          -Wtentative-definition-compat    # clang 21.1            appleclang ?
+          -Warray-compare                  # clang 20.1  gcc 12.0  appleclang 26.4
+          -Wc++-hidden-decl                # clang 21.1            appleclang 26.4
+          -Wjump-misses-init               # clang 21.1  gcc  4.5  appleclang 26.4
+          -Wno-implicit-void-ptr-cast      # clang 21.1            appleclang 26.4
+          -Wtentative-definition-compat    # clang 21.1            appleclang 26.4
         )
         if(WIN32)
           list(APPEND _picky_enable
-            -Wno-c++-keyword               # clang 21.1            appleclang ?  # `wchar_t` triggers it on Windows
+            -Wno-c++-keyword               # clang 21.1            appleclang 26.4  # `wchar_t` triggers it on Windows
           )
         else()
           list(APPEND _picky_enable
-            -Wc++-keyword                  # clang 21.1            appleclang ?
+            -Wc++-keyword                  # clang 21.1            appleclang 26.4
           )
         endif()
       endif()
@@ -283,7 +285,7 @@ if(PICKY_COMPILER)
       endif()
       if(CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 4.5)
         list(APPEND _picky_enable
-          -Wjump-misses-init               #             gcc  4.5
+          -Wjump-misses-init               # clang 21.1  gcc  4.5  appleclang 26.4
         )
         if(MINGW)
           list(APPEND _picky_enable
@@ -331,7 +333,7 @@ if(PICKY_COMPILER)
       endif()
       if(CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 13.0)
         list(APPEND _picky_enable
-          -Warray-compare                  # clang 20.0  gcc 12.0  appleclang ?
+          -Warray-compare                  # clang 20.1  gcc 12.0  appleclang 26.4
           -Wenum-int-mismatch              #             gcc 13.0
           -Wxor-used-as-pow                # clang 10.0  gcc 13.0  appleclang 12.0
         )
@@ -404,12 +406,11 @@ if(PICKY_COMPILER)
     list(APPEND _picky "-wd4548")  # expression before comma has no effect; expected expression with side-effect (in FD_SET())
     list(APPEND _picky "-wd4574")  # 'M' is defined to be '0': did you mean to use '#if M'? (in ws2tcpip.h)
     list(APPEND _picky "-wd4668")  # 'M' is not defined as a preprocessor macro, replacing with '0' for '#if/#elif' (in winbase.h)
-    list(APPEND _picky "-wd4710")  # 'snprintf': function not inlined
+    list(APPEND _picky "-wd4710")  # 'fprintf'/'printf'/'sscanf': function not inlined (in tests, with VS2022+ Release)
     list(APPEND _picky "-wd4711")  # function 'A' selected for automatic inline expansion
     # volatile access of '<expression>' is subject to /volatile:<iso|ms> setting;
     #   consider using __iso_volatile_load/store intrinsic functions (ARM64)
     list(APPEND _picky "-wd4746")
-    list(APPEND _picky "-wd4774")  # 'snprintf': format string expected in argument 3 is not a string literal
     list(APPEND _picky "-wd4820")  # 'A': 'N' bytes padding added after data member 'B'
     if(MSVC_VERSION GREATER_EQUAL 1900)
       list(APPEND _picky "-wd5045")  # Compiler will insert Spectre mitigation for memory load if /Qspectre switch specified

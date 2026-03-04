@@ -74,18 +74,15 @@
 #define CURLPROTO_WSS    0L
 #endif
 
+#define CURLPROTO_MQTTS   (1LL << 32)
+
+#define CURLPROTO_64ALL ((uint64_t)0xffffffffffffffff)
+
 /* the default protocols accepting a redirect to */
 #define CURLPROTO_REDIR (CURLPROTO_HTTP | CURLPROTO_HTTPS | CURLPROTO_FTP | \
                          CURLPROTO_FTPS)
 
-/* This should be undefined once we need bit 32 or higher */
-#define PROTO_TYPE_SMALL
-
-#ifndef PROTO_TYPE_SMALL
 typedef curl_off_t curl_prot_t;
-#else
-typedef uint32_t curl_prot_t;
-#endif
 
 /* This mask is for all the old protocols that are provided and defined in the
    public header and shall exclude protocols added since which are not exposed
@@ -217,7 +214,7 @@ typedef CURLcode (Curl_recv)(struct Curl_easy *data,   /* transfer */
  * us early warning on things only discovered by valgrind otherwise. */
 #define GOOD_EASY_HANDLE(x) \
   (((x) && ((x)->magic == CURLEASY_MAGIC_NUMBER)) ? TRUE : \
-  (DEBUGASSERT(!(x)), FALSE))
+   (DEBUGASSERT(!(x)), FALSE))
 #else
 #define GOOD_EASY_HANDLE(x) \
   ((x) && ((x)->magic == CURLEASY_MAGIC_NUMBER))
@@ -671,7 +668,7 @@ struct connectdata {
    * for concurrency reasons. That multi might run in another thread.
    * `attached_multi` is set by the first transfer attached and cleared
    * when the last one is detached.
-   * NEVER call anything on this multi, just check for equality. */
+   * NEVER call anything on this multi, check for equality. */
   struct Curl_multi *attached_multi;
 
   /*************** Request - specific items ************/
@@ -1268,7 +1265,7 @@ enum dupstring {
 
   STRING_COPYPOSTFIELDS,  /* if POST, set the fields' values here */
 
-  STRING_LAST /* not used, just an end-of-list marker */
+  STRING_LAST /* not used, an end-of-list marker */
 };
 
 enum dupblob {
@@ -1303,7 +1300,7 @@ struct UserDefined {
   curl_write_callback fwrite_header; /* function that stores headers */
   curl_write_callback fwrite_rtp;    /* function that stores interleaved RTP */
   curl_read_callback fread_func_set; /* function that reads the input */
-  curl_progress_callback fprogress; /* OLD and deprecated progress callback  */
+  curl_progress_callback fprogress; /* OLD and deprecated progress callback */
   curl_xferinfo_callback fxferinfo; /* progress callback */
   curl_debug_callback fdebug;      /* function that write informational data */
   curl_ioctl_callback ioctl_func;  /* function for I/O control */
@@ -1373,7 +1370,7 @@ struct UserDefined {
   curl_off_t max_filesize; /* Maximum file size to download */
 #ifndef CURL_DISABLE_FTP
   timediff_t accepttimeout;   /* in milliseconds, 0 means no timeout */
-  uint8_t ftp_filemethod; /* how to get to a file: curl_ftpfile  */
+  uint8_t ftp_filemethod; /* how to get to a file: curl_ftpfile */
   uint8_t ftpsslauth; /* what AUTH XXX to try: curl_ftpauth */
   uint8_t ftp_ccc;   /* FTP CCC options: curl_ftpccc */
 #endif
@@ -1443,7 +1440,7 @@ struct UserDefined {
 #endif
   uint32_t maxconnects; /* Max idle connections in the connection cache */
 #ifdef USE_ECH
-  int tls_ech;      /* TLS ECH configuration  */
+  int tls_ech;      /* TLS ECH configuration */
 #endif
   short maxredirs;    /* maximum no. of http(s) redirects to follow,
                          set to -1 for infinity */
@@ -1460,7 +1457,7 @@ struct UserDefined {
   uint16_t tftp_blksize;    /* in bytes, 0 means use default */
 #endif
 #ifndef CURL_DISABLE_NETRC
-  uint8_t use_netrc;        /* enum CURL_NETRC_OPTION values  */
+  uint8_t use_netrc;        /* enum CURL_NETRC_OPTION values */
 #endif
 #if !defined(CURL_DISABLE_FTP) || defined(USE_SSH)
   /* Despite the name, ftp_create_missing_dirs is for FTP(S) and SFTP
@@ -1543,7 +1540,7 @@ struct UserDefined {
   BIT(opt_no_body);    /* as set with CURLOPT_NOBODY */
   BIT(verbose);        /* output verbosity */
   BIT(reuse_forbid);   /* forbidden to be reused, close after use */
-  BIT(reuse_fresh);    /* do not reuse an existing connection  */
+  BIT(reuse_fresh);    /* do not reuse an existing connection */
   BIT(no_signal);      /* do not use any signal/alarm handler */
   BIT(tcp_nodelay);    /* whether to enable TCP_NODELAY or not */
   BIT(ignorecl);       /* ignore content length */

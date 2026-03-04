@@ -63,9 +63,9 @@
 #define H2_CONN_WINDOW_SIZE     (10 * 1024 * 1024)
 /* on receiving from TLS, we prep for holding a full stream window */
 #define H2_NW_RECV_CHUNKS       (H2_CONN_WINDOW_SIZE / H2_CHUNK_SIZE)
-/* on send into TLS, we just want to accumulate small frames */
+/* on send into TLS, we want to accumulate small frames */
 #define H2_NW_SEND_CHUNKS       1
-/* this is how much we want "in flight" for a stream, unthrottled  */
+/* this is how much we want "in flight" for a stream, unthrottled */
 #define H2_STREAM_WINDOW_SIZE_MAX   (10 * 1024 * 1024)
 /* this is how much we want "in flight" for a stream, initially, IFF
  * nghttp2 allows us to tweak the local window size. */
@@ -525,8 +525,8 @@ static CURLcode h2_process_pending_input(struct Curl_cfilter *cf,
 }
 
 /*
- * The server may send us data at any point (e.g. PING frames). Therefore,
- * we cannot assume that an HTTP/2 socket is dead just because it is readable.
+ * The server may send us data at any point (e.g. PING frames). Therefore, we
+ * cannot assume that an HTTP/2 socket is dead because it is readable.
  *
  * Check the lower filters first and, if successful, peek at the socket
  * and distinguish between closed and data.
@@ -677,7 +677,7 @@ char *curl_pushheader_byname(struct curl_pushheaders *h, const char *name)
   size_t i;
   /* Verify that we got a good easy handle in the push header struct,
      mostly to detect rubbish input fast(er). Also empty header name
-     is just a rubbish too. We have to allow ":" at the beginning of
+     is rubbish too. We have to allow ":" at the beginning of
      the header, but header == ":" must be rejected. If we have ':' in
      the middle of header, it could be matched in middle of the value,
      this is because we do prefix match.*/
@@ -888,7 +888,6 @@ static void h2_xfer_write_resp_hd(struct Curl_cfilter *cf,
                                   struct h2_stream_ctx *stream,
                                   const char *buf, size_t blen, bool eos)
 {
-
   /* If we already encountered an error, skip further writes */
   if(!stream->xfer_result) {
     stream->xfer_result = Curl_xfer_write_resp_hd(data, buf, blen, eos);
@@ -905,7 +904,6 @@ static void h2_xfer_write_resp(struct Curl_cfilter *cf,
                                struct h2_stream_ctx *stream,
                                const char *buf, size_t blen, bool eos)
 {
-
   /* If we already encountered an error, skip further writes */
   if(!stream->xfer_result)
     stream->xfer_result = Curl_xfer_write_resp(data, buf, blen, eos);

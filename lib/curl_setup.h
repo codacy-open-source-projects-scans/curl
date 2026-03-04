@@ -90,7 +90,7 @@
 /* Disable Visual Studio warnings: 4127 "conditional expression is constant" */
 #pragma warning(disable:4127)
 #ifndef _CRT_SECURE_NO_WARNINGS
-#define _CRT_SECURE_NO_WARNINGS  /* for getenv(), tests: sscanf() */
+#define _CRT_SECURE_NO_WARNINGS  /* for getenv(), sscanf() */
 #endif
 #endif /* _MSC_VER */
 
@@ -708,7 +708,7 @@
 #elif defined(USE_ARES)
 #  define CURLRES_ASYNCH
 #  define CURLRES_ARES
-/* now undef the stock libc functions just to avoid them being used */
+/* now undef the stock libc functions to avoid them being used */
 #  undef HAVE_GETADDRINFO
 #  undef HAVE_FREEADDRINFO
 #else
@@ -734,14 +734,9 @@
 #endif
 
 #if defined(USE_OPENSSL) && defined(USE_WOLFSSL)
-#  include <wolfssl/version.h>
-#  if LIBWOLFSSL_VERSION_HEX >= 0x05007006
-#    ifndef OPENSSL_COEXIST
-#    define OPENSSL_COEXIST
-#    endif
-#  else
-#    error "OpenSSL can only coexist with wolfSSL v5.7.6 or upper"
-#  endif
+#ifndef OPENSSL_COEXIST
+#define OPENSSL_COEXIST
+#endif
 #endif
 
 #if defined(USE_WOLFSSL) && defined(USE_GNUTLS)
@@ -1234,7 +1229,7 @@ typedef unsigned int curl_bit;
 #elif defined(_WIN32) || defined(__CYGWIN__)
 #define CURL_BINMODE(stream) (void)_setmode(fileno(stream), CURL_O_BINARY)
 #else
-#define CURL_BINMODE(stream) (void)stream
+#define CURL_BINMODE(stream) (void)(stream)
 #endif
 
 /* In Windows the default file mode is text but an application can override it.

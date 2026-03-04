@@ -371,6 +371,7 @@ static CURLcode get_client_cert(struct Curl_easy *data,
     DWORD cert_store_name = 0;
     TCHAR *cert_store_path = NULL;
     TCHAR *cert_thumbprint_str = NULL;
+    TCHAR cert_thumbprint_buf[CERT_THUMBPRINT_STR_LEN + 1];
     CRYPT_HASH_BLOB cert_thumbprint;
     BYTE cert_thumbprint_data[CERT_THUMBPRINT_DATA_LEN];
     HCERTSTORE cert_store = NULL;
@@ -391,6 +392,15 @@ static CURLcode get_client_cert(struct Curl_easy *data,
 
       result = get_cert_location(cert_path, &cert_store_name,
                                  &cert_store_path, &cert_thumbprint_str);
+
+      /* 'cert_thumbprint_str' points in to the allocated 'cert_path', copy
+         the data. The string is verified to be CERT_THUMBPRINT_STR_LEN bytes
+         long within the get_cert_location() function. */
+      if(!result && cert_thumbprint_str) {
+        memcpy(cert_thumbprint_buf, cert_thumbprint_str,
+               sizeof(cert_thumbprint_buf));
+        cert_thumbprint_str = cert_thumbprint_buf;
+      }
 
       curlx_free(cert_path);
       if(result && (data->set.ssl.primary.clientcert[0] != '\0'))
@@ -416,7 +426,7 @@ static CURLcode get_client_cert(struct Curl_easy *data,
     }
 
     if(fInCert || blob) {
-      /* Reading a .P12 or .pfx file, like the example at bottom of
+      /* Reading a .p12 or .pfx file, like the example at bottom of
          https://learn.microsoft.com/archive/msdn-technet-forums/3e7bc95f-b21a-4bcd-bd2c-7f996718cae5
       */
       CRYPT_DATA_BLOB datablob;
@@ -2030,8 +2040,8 @@ static CURLcode schannel_send(struct Curl_cfilter *cf, struct Curl_easy *data,
       timediff_t timeout_ms = Curl_timeleft_ms(data);
       if(timeout_ms < 0) {
         /* we already got the timeout */
-        failf(data, "schannel: timed out sending data "
-              "(bytes sent: %zu)", *pnwritten);
+        failf(data, "schannel: timed out sending data (bytes sent: %zu)",
+              *pnwritten);
         result = CURLE_OPERATION_TIMEDOUT;
         break;
       }
@@ -2045,8 +2055,8 @@ static CURLcode schannel_send(struct Curl_cfilter *cf, struct Curl_easy *data,
         break;
       }
       else if(what == 0) {
-        failf(data, "schannel: timed out sending data "
-              "(bytes sent: %zu)", *pnwritten);
+        failf(data, "schannel: timed out sending data (bytes sent: %zu)",
+              *pnwritten);
         result = CURLE_OPERATION_TIMEDOUT;
         break;
       }
@@ -2284,7 +2294,7 @@ static CURLcode schannel_recv(struct Curl_cfilter *cf, struct Curl_easy *data,
         backend->recv_sspi_close_notify = TRUE;
         if(!backend->recv_connection_closed)
           backend->recv_connection_closed = TRUE;
-        /* We received the close notify just fine, any error we got
+        /* We received the close notify fine, any error we got
          * from the lower filters afterwards (e.g. the socket), is not
          * an error on the TLS data stream. That one ended here. */
         if(result == CURLE_RECV_ERROR)

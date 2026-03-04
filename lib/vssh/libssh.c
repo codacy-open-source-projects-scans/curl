@@ -1000,10 +1000,11 @@ static int myssh_in_UPLOAD_INIT(struct Curl_easy *data,
   if(!sshc->sftp_file) {
     int err = sftp_get_error(sshc->sftp_session);
 
-    if(((err == SSH_FX_NO_SUCH_FILE || err == SSH_FX_FAILURE ||
-         err == SSH_FX_NO_SUCH_PATH)) &&
-       (data->set.ftp_create_missing_dirs &&
-        (strlen(sshp->path) > 1))) {
+    if((err == SSH_FX_NO_SUCH_FILE ||
+        err == SSH_FX_FAILURE ||
+        err == SSH_FX_NO_SUCH_PATH) &&
+       data->set.ftp_create_missing_dirs &&
+       (strlen(sshp->path) > 1)) {
       /* try to create the path remotely */
       rc = 0;
       sshc->secondCreateDirs = 1;
@@ -1128,7 +1129,7 @@ static int myssh_in_SFTP_DOWNLOAD_STAT(struct Curl_easy *data,
      (attrs->size == 0)) {
     /*
      * sftp_fstat did not return an error, so maybe the server
-     * just does not support stat()
+     * does not support stat()
      * OR the server does not return a file size with a stat()
      * OR file size is 0
      */
@@ -1227,7 +1228,7 @@ static int myssh_in_SFTP_CLOSE(struct Curl_easy *data,
 
   /* Check if nextstate is set and move .nextstate could be POSTQUOTE_INIT
      After nextstate is executed, the control should come back to
-     SSH_SFTP_CLOSE to pass the correct result back  */
+     SSH_SFTP_CLOSE to pass the correct result back */
   if(sshc->nextstate != SSH_NO_STATE &&
      sshc->nextstate != SSH_SFTP_CLOSE) {
     myssh_to(data, sshc, sshc->nextstate);

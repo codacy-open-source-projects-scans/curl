@@ -32,7 +32,7 @@
 CURLcode Curl_win32_init(long flags)
 {
   /* CURL_GLOBAL_WIN32 controls the *optional* part of the initialization which
-     is just for Winsock at the moment. Any required Win32 initialization
+     is for Winsock at the moment. Any required Win32 initialization
      should take place after this block. */
   if(flags & CURL_GLOBAL_WIN32) {
 #ifdef USE_WINSOCK
@@ -45,7 +45,7 @@ CURLcode Curl_win32_init(long flags)
 
     if(res)
       /* Tell the user that we could not find a usable */
-      /* winsock.dll.     */
+      /* winsock.dll. */
       return CURLE_FAILED_INIT;
 
     /* Confirm that the Windows Sockets DLL supports what we need.*/

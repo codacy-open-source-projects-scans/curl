@@ -486,7 +486,7 @@ static CURLcode tftp_tx(struct tftp_conn *state, tftp_event_t event)
     break;
 
   default:
-    failf(data, "tftp_tx: internal error, event: %i", (int)(event));
+    failf(data, "tftp_tx: internal error, event: %i", (int)event);
     break;
   }
 
@@ -536,7 +536,7 @@ static CURLcode tftp_rx(struct tftp_conn *state, tftp_event_t event)
       infof(data, "Received last DATA packet block %d again.", rblock);
     }
     else {
-      /* totally unexpected, just log it */
+      /* totally unexpected, log it */
       infof(data,
             "Received unexpected DATA packet block %d, expecting block %d",
             rblock, NEXT_BLOCKNUM(state->block));

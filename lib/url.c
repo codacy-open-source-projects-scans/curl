@@ -125,9 +125,9 @@ static void data_priority_cleanup(struct Curl_easy *data);
 #define data_priority_cleanup(x)
 #endif
 
-/* Some parts of the code (e.g. chunked encoding) assume this buffer has at
- * more than just a few bytes to play with. Do not let it become too small or
- * bad things will happen.
+/* Some parts of the code (e.g. chunked encoding) assume this buffer has more
+ * than a few bytes to play with. Do not let it become too small or bad things
+ * will happen.
  */
 #if READBUFFER_SIZE < READBUFFER_MIN
 # error READBUFFER_SIZE is too small
@@ -254,7 +254,7 @@ CURLcode Curl_close(struct Curl_easy **datap)
                     * handle might check the magic and so might any
                     * DEBUGFUNCTION invoked for tracing */
 
-  /* freed here just in case DONE was not called */
+  /* freed here in case DONE was not called */
   Curl_req_free(&data->req, data);
 
   /* Close down all open SSL info and sessions */
@@ -400,7 +400,7 @@ void Curl_init_userdefined(struct Curl_easy *data)
 #endif
 
   set->new_file_perms = 0644;    /* Default permissions */
-  set->allowed_protocols = (curl_prot_t) CURLPROTO_ALL;
+  set->allowed_protocols = (curl_prot_t) CURLPROTO_64ALL;
   set->redir_protocols = CURLPROTO_REDIR;
 
 #if defined(HAVE_GSSAPI) || defined(USE_WINDOWS_SSPI)
@@ -617,7 +617,7 @@ static bool socks_proxy_info_matches(const struct proxy_info *data,
 #endif
 
 /* A connection has to have been idle for less than 'conn_max_idle_ms'
-   (the success rate is just too low after this), or created less than
+   (the success rate is too low after this), or created less than
    'conn_max_age_ms' ago, to be subject for reuse. */
 static bool conn_maxage(struct Curl_easy *data,
                         struct connectdata *conn,
@@ -953,7 +953,7 @@ static bool url_match_proxy_use(struct connectdata *conn,
   return TRUE;
 }
 #else
-#define url_match_proxy_use(c, m) ((void)c, (void)m, TRUE)
+#define url_match_proxy_use(c, m) ((void)(c), (void)(m), TRUE)
 #endif
 
 #ifndef CURL_DISABLE_HTTP
@@ -1009,8 +1009,8 @@ static bool url_match_http_version(struct connectdata *conn,
   return TRUE;
 }
 #else
-#define url_match_http_multiplex(c, m) ((void)c, (void)m, TRUE)
-#define url_match_http_version(c, m)   ((void)c, (void)m, TRUE)
+#define url_match_http_multiplex(c, m) ((void)(c), (void)(m), TRUE)
+#define url_match_http_version(c, m)   ((void)(c), (void)(m), TRUE)
 #endif
 
 static bool url_match_proto_config(struct connectdata *conn,
@@ -1178,7 +1178,7 @@ static bool url_match_auth_ntlm(struct connectdata *conn,
   return TRUE;
 }
 #else
-#define url_match_auth_ntlm(c, m) ((void)c, (void)m, TRUE)
+#define url_match_auth_ntlm(c, m) ((void)(c), (void)(m), TRUE)
 #endif
 
 #ifdef USE_SPNEGO
@@ -1411,7 +1411,7 @@ static struct connectdata *allocate_conn(struct Curl_easy *data)
   conn->http_proxy.proxytype = data->set.proxytype;
   conn->socks_proxy.proxytype = CURLPROXY_SOCKS4;
 
-  /* note that these two proxy bits are now just on what looks to be
+  /* note that these two proxy bits are set on what looks to be
      requested, they may be altered down the road */
   conn->bits.proxy = (data->set.str[STRING_PROXY] &&
                       *data->set.str[STRING_PROXY]);
@@ -1844,7 +1844,7 @@ static CURLcode parseurlandfillconn(struct Curl_easy *data,
 
 #ifdef USE_IPV6
   if(data->set.scope_id)
-    /* Override any scope that was set above.  */
+    /* Override any scope that was set above. */
     conn->scope_id = data->set.scope_id;
 #endif
 
@@ -2538,7 +2538,6 @@ error:
 static CURLcode parse_remote_port(struct Curl_easy *data,
                                   struct connectdata *conn)
 {
-
   if(data->set.use_port && data->state.allow_port) {
     /* if set, we use this instead of the port possibly given in the URL */
     char portbuf[16];
@@ -3072,9 +3071,9 @@ static CURLcode resolve_unix(struct Curl_easy *data,
   DEBUGASSERT(unix_path);
   *pdns = NULL;
 
-  /* Unix domain sockets are local. The host gets ignored, just use the
-   * specified domain socket address. Do not cache "DNS entries". There is
-   * no DNS involved and we already have the file system path available. */
+  /* Unix domain sockets are local. The host gets ignored, use the specified
+   * domain socket address. Do not cache "DNS entries". There is no DNS
+   * involved and we already have the file system path available. */
   hostaddr = curlx_calloc(1, sizeof(struct Curl_dns_entry));
   if(!hostaddr)
     return CURLE_OUT_OF_MEMORY;
