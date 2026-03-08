@@ -431,10 +431,10 @@ can imagine.
 
 ## What about SOAP, WebDAV, XML-RPC or similar protocols over HTTP?
 
-curl adheres to the HTTP spec, which basically means you can play with *any*
-protocol that is built on top of HTTP. Protocols such as SOAP, WebDAV and
-XML-RPC are all such ones. You can use `-X` to set custom requests and -H to
-set custom headers (or replace internally generated ones).
+curl adheres to the HTTP spec, which means you can play with *any* protocol
+that is built on top of HTTP. Protocols such as SOAP, WebDAV and XML-RPC are
+all such ones. You can use `-X` to set custom requests and -H to set custom
+headers (or replace internally generated ones).
 
 Using libcurl of course also works and you would use the proper library
 options to do the same.
@@ -562,8 +562,8 @@ the first path part. List the `/tmp` directory like this:
 
     curl ftp://ftp.example.com/%2ftmp/
 
-or the not-quite-kosher-but-more-readable way, by simply starting the path
-section of the URL with a slash:
+The second way is non-standard but more readable; start the path section of the
+URL with a slash:
 
     curl ftp://ftp.example.com//tmp/
 
@@ -873,9 +873,9 @@ request body) use the `Expect: 100-continue` header. This header allows the
 server to deny the operation early so that libcurl can bail out before having
 to send any data. This is useful in authentication cases and others.
 
-However, many servers do not implement the `Expect:` stuff properly and if the
-server does not respond (positively) within 1 second libcurl will continue and
-send off the data anyway.
+Many servers do not implement the `Expect:` stuff properly and if the server
+does not respond (positively) within 1 second libcurl will continue and send
+off the data anyway.
 
 You can disable libcurl's use of the `Expect:` header the same way you disable
 any header, using `-H` / `CURLOPT_HTTPHEADER`, or by forcing it to use HTTP
@@ -1330,9 +1330,9 @@ their projects, no matter what license they already have in use.
 ## What are my obligations when using libcurl in my commercial apps?
 
 Next to none. All you need to adhere to is the MIT-style license (stated in
-the COPYING file) which basically says you have to include the copyright
-notice in *all copies* and that you may not use the copyright holder's name
-when promoting your software.
+the COPYING file) which says you have to include the copyright notice in *all
+copies* and that you may not use the copyright holder's name when promoting
+your software.
 
 You do not have to release any of your source code.
 

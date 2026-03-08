@@ -67,10 +67,10 @@ does not have `res_init()` or an alternative.
 ## c-ares and CURLOPT_OPENSOCKETFUNCTION
 
 curl creates most sockets via the CURLOPT_OPENSOCKETFUNCTION callback and
-close them with the CURLOPT_CLOSESOCKETFUNCTION callback. However, c-ares does
-not use those functions and instead opens and closes the sockets itself. This
-means that when curl passes the c-ares socket to the CURLMOPT_SOCKETFUNCTION
-it is not owned by the application like other sockets.
+close them with the CURLOPT_CLOSESOCKETFUNCTION callback. c-ares does not use
+those functions and instead opens and closes the sockets itself. This means
+that when curl passes the c-ares socket to the CURLMOPT_SOCKETFUNCTION it is
+not owned by the application like other sockets.
 
 See [curl issue 2734](https://github.com/curl/curl/issues/2734)
 
@@ -92,8 +92,8 @@ pings to keep such ones alive even when not actively doing transfers on them.
 
 Given a URL that for example contains spaces, libcurl could have an option
 that would try somewhat harder than it does now and convert spaces to %20 and
-perhaps URL encoded byte values over 128 etc (basically do what the redirect
-following code already does).
+perhaps URL encoded byte values over 128 etc (do what the redirect following
+code already does).
 
 [curl issue 514](https://github.com/curl/curl/issues/514)
 
@@ -409,10 +409,10 @@ capabilities returned from the CAPABILITY command.
 ## SASL based authentication mechanisms
 
 Currently the LDAP module only supports `ldap_simple_bind_s()` in order to
-bind to an LDAP server. However, this function sends username and password
-details using the simple authentication mechanism (as clear text). However, it
-should be possible to use `ldap_bind_s()` instead specifying the security
-context information ourselves.
+bind to an LDAP server. This function sends username and password details
+using the simple authentication mechanism (as clear text). It should be
+possible to use `ldap_bind_s()` instead specifying the security context
+information ourselves.
 
 ## `CURLOPT_SSL_CTX_FUNCTION` for LDAPS
 
@@ -880,12 +880,11 @@ See [curl issue 6150](https://github.com/curl/curl/issues/6150)
 ## `-J` and `-O` with %-encoded filenames
 
 `-J`/`--remote-header-name` does not decode %-encoded filenames. RFC 6266
-details how it should be done. The can of worm is basically that we have no
-charset handling in curl and ASCII >=128 is a challenge for us. Not to mention
-that decoding also means that we need to check for nastiness that is
-attempted, like `../` sequences and the like. Probably everything to the left
-of any embedded slashes should be cut off. See
-https://curl.se/bug/view.cgi?id=1294
+details how it should be done. The can of worm is that we have no charset
+handling in curl and ASCII >=128 is a challenge for us. Not to mention that
+decoding also means that we need to check for nastiness that is attempted,
+like `../` sequences and the like. Probably everything to the left of any
+embedded slashes should be cut off. See https://curl.se/bug/view.cgi?id=1294
 
 `-O` also does not decode %-encoded names, and while it has even less
 information about the charset involved the process is similar to the `-J`
