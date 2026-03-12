@@ -21,30 +21,35 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "curl_setup.h"
+#include "first.h"
 
-#include "curlx/strcopy.h"
-
-/*
- * curlx_strcopy() is a replacement for strcpy.
- *
- * Provide the target buffer @dest and size of the target buffer @dsize, If
- * the source string @src with its *string length* @slen fits in the target
- * buffer it is copied there - including storing a null terminator.
- *
- * If the target buffer is too small, the copy is not performed but if the
- * target buffer has a non-zero size it gets a null terminator stored.
- */
-void curlx_strcopy(char *dest,      /* destination buffer */
-                   size_t dsize,    /* size of target buffer */
-                   const char *src, /* source string */
-                   size_t slen)     /* length of source string to copy */
+static CURLcode test_lib1965(const char *URL)
 {
-  DEBUGASSERT(slen < dsize);
-  if(slen < dsize) {
-    memcpy(dest, src, slen);
-    dest[slen] = 0;
+  CURLcode result = CURLE_OK;
+  CURLUcode rc;
+  const char *schemes[] = {
+    "bad!", "bad{", "bad/", "bad\\", "a!",
+    "a+123", "http-2", "http.1",
+    "a+-.123", "http-+++2", "http.1--",
+    "+a123", "-http2", ".http1",
+    "ABC2", "2CBA", "", "a",
+    "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+    "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddde",
+    NULL};
+  int i;
+  (void) URL;
+
+  global_init(CURL_GLOBAL_ALL);
+
+  for(i = 0; schemes[i]; i++) {
+    CURLU *url = curl_url();
+    rc = curl_url_set(url, CURLUPART_SCHEME, schemes[i],
+                      CURLU_NON_SUPPORT_SCHEME);
+    curl_mprintf("%s %s\n", schemes[i],
+                 rc == CURLUE_OK ? "ACCEPTED" : "REJECTED");
+    curl_url_cleanup(url);
   }
-  else if(dsize)
-    dest[0] = 0;
+
+  curl_global_cleanup();
+  return result;
 }
