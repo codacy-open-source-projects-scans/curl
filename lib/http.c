@@ -1210,12 +1210,12 @@ CURLcode Curl_http_follow(struct Curl_easy *data, const char *newurl,
     /* Clear auth if this redirects to a different port number or protocol,
        unless permitted */
     if(!data->set.allow_auth_to_other_hosts && (type != FOLLOW_FAKE)) {
-      int port;
+      uint16_t port;
       bool clear = FALSE;
 
       if(data->set.use_port && data->state.allow_port)
         /* a custom port is used */
-        port = (int)data->set.use_port;
+        port = data->set.use_port;
       else {
         curl_off_t value;
         char *portnum;
@@ -1228,7 +1228,7 @@ CURLcode Curl_http_follow(struct Curl_easy *data, const char *newurl,
         }
         p = portnum;
         curlx_str_number(&p, &value, 0xffff);
-        port = (int)value;
+        port = (uint16_t)value;
         curlx_free(portnum);
       }
       if(port != data->info.conn_remote_port) {
@@ -1617,7 +1617,7 @@ CURLcode Curl_http_perform_pollset(struct Curl_easy *data,
   struct connectdata *conn = data->conn;
   CURLcode result = CURLE_OK;
 
-  if(CURL_WANT_RECV(data)) {
+  if(CURL_REQ_WANT_RECV(data)) {
     result = Curl_pollset_add_in(data, ps, conn->sock[FIRSTSOCKET]);
   }
 
@@ -2677,7 +2677,7 @@ static CURLcode http_firstwrite(struct Curl_easy *data)
     if(conn->bits.close) {
       /* Abort after the headers if "follow Location" is set
          and we are set to close anyway. */
-      k->keepon &= ~KEEP_RECV;
+      CURL_REQ_CLEAR_RECV(data);
       k->done = TRUE;
       return CURLE_OK;
     }
@@ -2696,7 +2696,7 @@ static CURLcode http_firstwrite(struct Curl_easy *data)
       infof(data, "The entire document is already downloaded");
       streamclose(conn, "already downloaded");
       /* Abort download */
-      k->keepon &= ~KEEP_RECV;
+      CURL_REQ_CLEAR_RECV(data);
       k->done = TRUE;
       return CURLE_OK;
     }
@@ -2969,7 +2969,7 @@ static CURLcode http_add_hd(struct Curl_easy *data,
 #ifndef CURL_DISABLE_ALTSVC
   case H1_HD_ALT_USED:
     if(conn->bits.altused && !Curl_checkheaders(data, STRCONST("Alt-Used")))
-      result = curlx_dyn_addf(req, "Alt-Used: %s:%d\r\n",
+      result = curlx_dyn_addf(req, "Alt-Used: %s:%u\r\n",
                               conn->conn_to_host.name,
                               conn->conn_to_port);
     break;
@@ -4139,7 +4139,7 @@ static CURLcode http_on_response(struct Curl_easy *data,
     if(Curl_creader_will_rewind(data) && !Curl_req_done_sending(data)) {
       /* We rewind before next send, continue sending now */
       infof(data, "Keep sending data to get tossed away");
-      k->keepon |= KEEP_SEND;
+      CURL_REQ_SET_SEND(data);
     }
   }
 
