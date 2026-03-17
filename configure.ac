@@ -3090,7 +3090,7 @@ case "$OPT_H2" in
     dnl --with-nghttp2 option used with path
     want_nghttp2="yes"
     want_nghttp2_path="$withval"
-    want_nghttp2_pkg_config_path="$withval/lib/pkgconfig"
+    want_nghttp2_pkg_config_path="$OPT_H2/lib/pkgconfig"
     ;;
 esac
 
@@ -3186,7 +3186,7 @@ case "$OPT_TCP2" in
   *)
     dnl --with-ngtcp2 option used with path
     want_tcp2="yes"
-    want_tcp2_path="$withval/lib/pkgconfig"
+    want_tcp2_path="$OPT_TCP2/lib/pkgconfig"
     ;;
 esac
 
@@ -3315,7 +3315,7 @@ if test "$USE_NGTCP2" = "1" && test "$OPENSSL_ENABLED" = "1" && test "$HAVE_LIBR
 fi
 
 if test "$USE_NGTCP2" = "1" && test "$OPENSSL_ENABLED" = "1" && test "$HAVE_LIBRESSL" != "1" &&
-   test "$OPENSSL_IS_BORINGSSL" != "1" && test "$OPENSSL_QUIC_API2" != "1"; then
+   test "$OPENSSL_IS_AWSLC" != "1" && test "$OPENSSL_IS_BORINGSSL" != "1" && test "$OPENSSL_QUIC_API2" != "1"; then
 
   dnl backup the pre-ngtcp2_crypto_quictls variables
   CLEANLDFLAGS="$LDFLAGS"
@@ -3373,8 +3373,8 @@ if test "$USE_NGTCP2" = "1" && test "$OPENSSL_ENABLED" = "1" && test "$HAVE_LIBR
   fi
 fi
 
-if test "$USE_NGTCP2" = "1" && test "$OPENSSL_ENABLED" = "1" && test "$OPENSSL_IS_BORINGSSL" != "1" &&
-   test "$OPENSSL_QUIC_API2" = "1"; then
+if test "$USE_NGTCP2" = "1" && test "$OPENSSL_ENABLED" = "1" &&
+   test "$OPENSSL_IS_AWSLC" != "1" && test "$OPENSSL_IS_BORINGSSL" != "1" && test "$OPENSSL_QUIC_API2" = "1"; then
 
   dnl backup the pre-ngtcp2_crypto_ossl variables
   CLEANLDFLAGS="$LDFLAGS"
@@ -3433,7 +3433,8 @@ if test "$USE_NGTCP2" = "1" && test "$OPENSSL_ENABLED" = "1" && test "$OPENSSL_I
   fi
 fi
 
-if test "$USE_NGTCP2" = "1" && test "$OPENSSL_ENABLED" = "1" && test "$OPENSSL_IS_BORINGSSL" = "1"; then
+if test "$USE_NGTCP2" = "1" && test "$OPENSSL_ENABLED" = "1" &&
+   (test "$OPENSSL_IS_AWSLC" = "1" || test "$OPENSSL_IS_BORINGSSL" = "1"); then
 
   dnl backup the pre-ngtcp2_crypto_boringssl variables
   CLEANLDFLAGS="$LDFLAGS"
@@ -3634,7 +3635,7 @@ case "$OPT_NGHTTP3" in
   *)
     dnl --with-nghttp3 option used with path
     want_nghttp3="yes"
-    want_nghttp3_path="$withval/lib/pkgconfig"
+    want_nghttp3_path="$OPT_NGHTTP3/lib/pkgconfig"
     ;;
 esac
 
