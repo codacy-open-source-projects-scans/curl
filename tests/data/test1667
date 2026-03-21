@@ -3,7 +3,8 @@
 <info>
 <keywords>
 unittest
-GTime2str
+ASN1tostr
+x509asn1
 </keywords>
 </info>
 
@@ -13,7 +14,7 @@ GTime2str
 unittest
 </features>
 <name>
-GTime2str unit tests
+ASN1tostr unit tests
 </name>
 </client>
 </testcase>

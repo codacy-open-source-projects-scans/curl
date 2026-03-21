@@ -1,5 +1,3 @@
-#ifndef HEADER_CURL_HTTP_AWS_SIGV4_H
-#define HEADER_CURL_HTTP_AWS_SIGV4_H
 /***************************************************************************
  *                                  _   _ ____  _
  *  Project                     ___| | | |  _ \| |
@@ -23,12 +21,23 @@
  * SPDX-License-Identifier: curl
  *
  ***************************************************************************/
-#include "curl_setup.h"
+#include "unitcheck.h"
+#include "protocol.h"
 
-#include "curlx/dynbuf.h"
-#include "urldata.h"
+static CURLcode test_unit3219(const char *arg)
+{
+  UNITTEST_BEGIN_SIMPLE
 
-/* this is for creating aws_sigv4 header output */
-CURLcode Curl_output_aws_sigv4(struct Curl_easy *data);
+  fail_unless((CURLPROTO_MASK & CURLPROTO_HTTP) == CURLPROTO_HTTP,
+              "mask should include HTTP");
+  fail_unless((CURLPROTO_MASK & CURLPROTO_GOPHERS) == CURLPROTO_GOPHERS,
+              "mask should include the highest public protocol bit");
+  fail_unless((CURLPROTO_MASK & CURLPROTO_WS) == 0,
+              "mask should exclude websocket protocol bits");
+  fail_unless((CURLPROTO_MASK & CURLPROTO_WSS) == 0,
+              "mask should exclude secure websocket protocol bits");
+  fail_unless((CURLPROTO_MASK & CURLPROTO_MQTTS) == 0,
+              "mask should exclude internal-only protocols");
 
-#endif /* HEADER_CURL_HTTP_AWS_SIGV4_H */
+  UNITTEST_END_SIMPLE
+}

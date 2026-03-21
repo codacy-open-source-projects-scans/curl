@@ -3,17 +3,17 @@
 <info>
 <keywords>
 unittest
-GTime2str
+define
 </keywords>
 </info>
 
-# Client-side
 <client>
 <features>
 unittest
 </features>
 <name>
-GTime2str unit tests
+CURLPROTO_MASK checks
 </name>
 </client>
+
 </testcase>

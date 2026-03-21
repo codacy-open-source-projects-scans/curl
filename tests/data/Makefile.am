@@ -222,7 +222,7 @@ test1640 test1641 test1642 test1643 \
 \
 test1650 test1651 test1652 test1653 test1654 test1655 test1656 test1657 \
 test1658 test1659 test1660 test1661 test1662 test1663 test1664 test1665 \
-test1666 \
+test1666 test1667 \
 \
 test1670 test1671 \
 \
@@ -245,6 +245,7 @@ test1970 test1971 test1972 test1973 test1974 test1975 test1976 test1977 \
 test1978 test1979 test1980 test1981 \
 \
 test2000 test2001 test2002 test2003 test2004 test2005 test2006 test2007 \
+test2008 \
 \
                                                                test2023 \
 test2024 test2025 test2026 test2027 test2028 test2029 test2030 test2031 \
@@ -281,9 +282,10 @@ test3032 test3033 test3034 test3035 test3036 \
 \
 test3100 test3101 test3102 test3103 test3104 test3105 \
 \
-test3200 test3201 test3202 test3203 test3204 test3205 test3206 test3207 test3208 \
-test3209 test3210 test3211 test3212 test3213 test3214 test3215 test3216 test3217 \
-test3218 \
+test3200 test3201 test3202 test3203 test3204 test3205 test3206 test3207 \
+test3208 test3209 test3210 test3211 test3212 test3213 test3214 test3215 \
+test3216 test3217 test3218 test3219 \
+\
 test4000 test4001
 
 EXTRA_DIST = $(TESTCASES) DISABLED data-xml1 data320.html \
