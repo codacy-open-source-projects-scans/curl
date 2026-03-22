@@ -551,6 +551,7 @@ struct Progress {
                       force redraw at next call */
   struct pgrs_dir ul;
   struct pgrs_dir dl;
+  curl_off_t deliver; /* amount of data delivered to application */
 
   curl_off_t current_speed; /* uses the currently fastest transfer */
   curl_off_t earlydata_sent;
@@ -719,7 +720,8 @@ struct UrlState {
 
   struct Curl_dns_entry *dns[2]; /* DNS to connect FIRST/SECONDARY */
 #ifdef USE_CURL_ASYNC
-  struct Curl_async async;  /* asynchronous name resolver data */
+  struct Curl_resolv_async *async;  /* asynchronous name resolver data */
+  uint32_t next_async_id; /* id of the next async resolve operation */
 #endif
 
 #ifdef USE_OPENSSL
