@@ -158,7 +158,7 @@ static void h2_tunnel_go_state(struct Curl_cfilter *cf,
     /* If a proxy-authorization header was used for the proxy, then we should
        make sure that it is not accidentally used for the document request
        after we have connected. Let's thus free and clear it here. */
-    curlx_safefree(data->state.aptr.proxyuserpwd);
+    curlx_safefree(data->req.proxyuserpwd);
     break;
   }
 }
@@ -685,15 +685,16 @@ static int proxy_h2_on_stream_close(nghttp2_session *session,
   return 0;
 }
 
-static CURLcode proxy_h2_submit(int32_t *pstream_id,
-                                struct Curl_cfilter *cf,
-                                struct Curl_easy *data,
-                                nghttp2_session *h2,
-                                struct httpreq *req,
-                                const nghttp2_priority_spec *pri_spec,
-                                void *stream_user_data,
-                               nghttp2_data_source_read_callback read_callback,
-                                void *read_ctx)
+static CURLcode proxy_h2_submit(
+  int32_t *pstream_id,
+  struct Curl_cfilter *cf,
+  struct Curl_easy *data,
+  nghttp2_session *h2,
+  struct httpreq *req,
+  const nghttp2_priority_spec *pri_spec,
+  void *stream_user_data,
+  nghttp2_data_source_read_callback read_callback,
+  void *read_ctx)
 {
   struct dynhds h2_headers;
   nghttp2_nv *nva = NULL;

@@ -680,7 +680,8 @@ static int compare_func(const void *a, const void *b)
 }
 
 UNITTEST CURLcode canon_path(const char *q, size_t len,
-                             struct dynbuf *new_path, bool normalize);
+                             struct dynbuf *new_path,
+                             bool do_uri_encode);
 UNITTEST CURLcode canon_path(const char *q, size_t len,
                              struct dynbuf *new_path,
                              bool do_uri_encode)
@@ -1110,8 +1111,8 @@ CURLcode Curl_output_aws_sigv4(struct Curl_easy *data)
   Curl_strntoupper(&auth_headers[sizeof("Authorization: ") - 1],
                    curlx_str(&provider0), curlx_strlen(&provider0));
 
-  curlx_free(data->state.aptr.userpwd);
-  data->state.aptr.userpwd = auth_headers;
+  curlx_free(data->req.userpwd);
+  data->req.userpwd = auth_headers;
   data->state.authhost.done = TRUE;
   result = CURLE_OK;
 

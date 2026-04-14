@@ -26,7 +26,7 @@
 /* This file is for lib internal stuff */
 #include "curl_setup.h"
 
-#define CURL_DEFAULT_USER "anonymous"
+#define CURL_DEFAULT_USER     "anonymous"
 #define CURL_DEFAULT_PASSWORD "ftp@example.com"
 
 #if !defined(_WIN32) && !defined(MSDOS)
@@ -801,7 +801,6 @@ struct UrlState {
   struct dynamically_allocated_data {
     char *uagent;
     char *accept_encoding;
-    char *userpwd;
     char *rangeline;
     char *ref;
     char *host;
@@ -816,7 +815,6 @@ struct UrlState {
     char *user;
     char *passwd;
 #ifndef CURL_DISABLE_PROXY
-    char *proxyuserpwd;
     char *proxyuser;
     char *proxypasswd;
 #endif

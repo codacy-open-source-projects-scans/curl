@@ -284,11 +284,7 @@ CURLcode Curl_close(struct Curl_easy **datap)
     DEBUGASSERT(0);
 
   Curl_hash_destroy(&data->meta_hash);
-#ifndef CURL_DISABLE_PROXY
-  curlx_safefree(data->state.aptr.proxyuserpwd);
-#endif
   curlx_safefree(data->state.aptr.uagent);
-  curlx_safefree(data->state.aptr.userpwd);
   curlx_safefree(data->state.aptr.accept_encoding);
   curlx_safefree(data->state.aptr.rangeline);
   curlx_safefree(data->state.aptr.ref);
@@ -390,7 +386,7 @@ void Curl_init_userdefined(struct Curl_easy *data)
 #endif
 
   set->new_file_perms = 0644;    /* Default permissions */
-  set->allowed_protocols = (curl_prot_t) CURLPROTO_64ALL;
+  set->allowed_protocols = (curl_prot_t)CURLPROTO_64ALL;
   set->redir_protocols = CURLPROTO_REDIR;
 
 #if defined(HAVE_GSSAPI) || defined(USE_WINDOWS_SSPI)
