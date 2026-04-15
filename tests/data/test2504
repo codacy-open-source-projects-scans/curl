@@ -3,18 +3,20 @@
 <info>
 <keywords>
 HTTP
-HTTP PUT
+cookies
 </keywords>
 </info>
+
 # Server-side
 <reply>
-<data>
-HTTP/1.0 200 OK swsclose
+<data crlf="headers" nocheck="yes">
+HTTP/1.1 200 OK
 Date: Tue, 09 Nov 2010 14:49:00 GMT
-Server: test-server/fake
+Server: server.example.com
+Content-Length: 47
+Set-Cookie: sid=SECRET123; Path=/
 
-blablabla
-
+file contents should appear once for each file
 </data>
 </reply>
 
@@ -23,27 +25,28 @@ blablabla
 <server>
 http
 </server>
+<tool>
+lib%TESTNUMBER
+</tool>
 <name>
-HTTP PUT from file with weird letters
+custom Host with cookie, handle reuse, no custom Host:
 </name>
 <command>
-http://%HOSTIP:%HTTPPORT/we/want/ -T %LOGDIR/%TESTNUMBERte[]st.txt -g
+http://%HOSTIP:%HTTPPORT
 </command>
-<file name="%LOGDIR/%TESTNUMBERte[]st.txt">
-a few bytes
-</file>
 </client>
 
 # Verify data after the test has been "shot"
 <verify>
 <protocol crlf="headers">
-PUT /we/want/%TESTNUMBERte%5B%5Dst.txt HTTP/1.1
-Host: %HOSTIP:%HTTPPORT
-User-Agent: curl/%VERSION
+GET / HTTP/1.1
+Host: victim.internal
 Accept: */*
-Content-Length: 12
 
-a few bytes
+GET / HTTP/1.1
+Host: %HOSTIP:%HTTPPORT
+Accept: */*
+
 </protocol>
 </verify>
 </testcase>

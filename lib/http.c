@@ -166,17 +166,29 @@ char *Curl_checkProxyheaders(struct Curl_easy *data,
 }
 #endif
 
+/* If the header has a value, this function returns TRUE and the value is in
+   'outp' with blanks trimmed off.
+*/
+static bool header_has_value(const char **headerp, struct Curl_str *outp)
+{
+  bool value = !curlx_str_cspn(headerp, outp, ";:") &&
+    (!curlx_str_single(headerp, ':') || !curlx_str_single(headerp, ';'));
+
+  if(value) {
+    curlx_str_untilnl(headerp, outp, MAX_HTTP_RESP_HEADER_SIZE);
+    curlx_str_trimblanks(outp);
+  }
+  return value;
+}
+
 static bool http_header_is_empty(const char *header)
 {
   struct Curl_str out;
 
-  if(!curlx_str_cspn(&header, &out, ";:") &&
-     (!curlx_str_single(&header, ':') || !curlx_str_single(&header, ';'))) {
-    curlx_str_untilnl(&header, &out, MAX_HTTP_RESP_HEADER_SIZE);
-    curlx_str_trimblanks(&out);
+  if(header_has_value(&header, &out)) {
     return curlx_strlen(&out) == 0;
   }
-  return TRUE; /* invalid head format, treat as empty */
+  return TRUE; /* invalid header format, treat as empty */
 }
 
 /*
@@ -192,11 +204,7 @@ static CURLcode copy_custom_value(const char *header, char **valp)
   struct Curl_str out;
 
   /* find the end of the header name */
-  if(!curlx_str_cspn(&header, &out, ";:") &&
-     (!curlx_str_single(&header, ':') || !curlx_str_single(&header, ';'))) {
-    curlx_str_untilnl(&header, &out, MAX_HTTP_RESP_HEADER_SIZE);
-    curlx_str_trimblanks(&out);
-
+  if(header_has_value(&header, &out)) {
     *valp = curlx_memdup0(curlx_str(&out), curlx_strlen(&out));
     if(*valp)
       return CURLE_OK;
@@ -1270,12 +1278,24 @@ CURLcode Curl_http_follow(struct Curl_easy *data, const char *newurl,
         curlx_free(scheme);
       }
       if(clear) {
+        CURLcode result = Curl_reset_userpwd(data);
+        if(result) {
+          curlx_free(follow_url);
+          return result;
+        }
         curlx_safefree(data->state.aptr.user);
         curlx_safefree(data->state.aptr.passwd);
       }
     }
   }
   DEBUGASSERT(follow_url);
+  {
+    CURLcode result = Curl_reset_proxypwd(data);
+    if(result) {
+      curlx_free(follow_url);
+      return result;
+    }
+  }
 
   if(type == FOLLOW_FAKE) {
     /* we are only figuring out the new URL if we would have followed locations
@@ -2026,6 +2046,9 @@ static CURLcode http_set_aptr_host(struct Curl_easy *data)
     data->state.first_remote_protocol = conn->scheme->protocol;
   }
   curlx_safefree(aptr->host);
+#ifndef CURL_DISABLE_COOKIES
+  curlx_safefree(data->req.cookiehost);
+#endif
 
   ptr = Curl_checkheaders(data, STRCONST("Host"));
   if(ptr && (!data->state.this_is_a_follow ||
@@ -2061,8 +2084,7 @@ static CURLcode http_set_aptr_host(struct Curl_easy *data)
         if(colon)
           *colon = 0; /* The host must not include an embedded port number */
       }
-      curlx_free(aptr->cookiehost);
-      aptr->cookiehost = cookiehost;
+      data->req.cookiehost = cookiehost;
     }
 #endif
 
@@ -2557,8 +2579,8 @@ static CURLcode http_cookies(struct Curl_easy *data,
 
     if(data->cookies && data->state.cookie_engine) {
       bool okay;
-      const char *host = data->state.aptr.cookiehost ?
-        data->state.aptr.cookiehost : data->conn->host.name;
+      const char *host = data->req.cookiehost ?
+        data->req.cookiehost : data->conn->host.name;
       Curl_share_lock(data, CURL_LOCK_DATA_COOKIE, CURL_LOCK_ACCESS_SINGLE);
       result = Curl_cookie_getlist(data, data->conn, &okay, host, &list);
       if(!result && okay) {
@@ -3558,8 +3580,8 @@ static CURLcode http_header_s(struct Curl_easy *data,
   if(v) {
     /* If there is a custom-set Host: name, use it here, or else use
      * real peer hostname. */
-    const char *host = data->state.aptr.cookiehost ?
-      data->state.aptr.cookiehost : conn->host.name;
+    const char *host = data->req.cookiehost ?
+      data->req.cookiehost : conn->host.name;
     const bool secure_context = Curl_secure_context(conn, host);
     CURLcode result;
     Curl_share_lock(data, CURL_LOCK_DATA_COOKIE, CURL_LOCK_ACCESS_SINGLE);
