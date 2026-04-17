@@ -261,7 +261,7 @@ static CURLUcode parse_hostname_login(struct Curl_URL *u,
                                       size_t *offset) /* to the hostname */
 {
   CURLUcode ures = CURLUE_OK;
-  CURLcode ccode;
+  CURLcode result;
   char *userp = NULL;
   char *passwdp = NULL;
   char *optionsp = NULL;
@@ -294,11 +294,11 @@ static CURLUcode parse_hostname_login(struct Curl_URL *u,
 
   /* We could use the login information in the URL so extract it. Only parse
      options if the handler says we should. Note that 'h' might be NULL! */
-  ccode = Curl_parse_login_details(login, ptr - login - 1,
-                                   &userp, &passwdp,
-                                   (h && (h->flags & PROTOPT_URLOPTIONS)) ?
-                                   &optionsp : NULL);
-  if(ccode) {
+  result = Curl_parse_login_details(login, ptr - login - 1,
+                                    &userp, &passwdp,
+                                    (h && (h->flags & PROTOPT_URLOPTIONS)) ?
+                                    &optionsp : NULL);
+  if(result) {
     /* the only possible error from Curl_parse_login_details is out of
        memory: */
     ures = CURLUE_OUT_OF_MEMORY;
@@ -1373,11 +1373,12 @@ static CURLUcode urlget_format(const CURLU *u, CURLUPart what,
   if(urldecode) {
     char *decoded;
     size_t dlen;
-    /* this unconditional rejection of control bytes is documented
-       API behavior */
-    CURLcode res = Curl_urldecode(part, partlen, &decoded, &dlen, REJECT_CTRL);
+    /* this unconditional rejection of control bytes is documented API
+       behavior */
+    CURLcode result = Curl_urldecode(part, partlen, &decoded, &dlen,
+                                     REJECT_CTRL);
     curlx_free(part);
-    if(res)
+    if(result)
       return CURLUE_URLDECODE;
     part = decoded;
     partlen = dlen;
@@ -1990,4 +1991,37 @@ nomem:
     *storep = (char *)CURL_UNCONST(newp);
   }
   return CURLUE_OK;
+}
+
+bool Curl_url_same_origin(CURLU *base, CURLU *href)
+{
+  const struct Curl_scheme *s = NULL;
+
+  /* base must be an absolute URL */
+  if(!base->scheme || !base->host)
+    return FALSE;
+  if(href->scheme && !curl_strequal(base->scheme, href->scheme))
+    return FALSE;
+  if(href->host) {
+    if(!curl_strequal(base->host, href->host))
+      return FALSE;
+    if(!curl_strequal(base->port, href->port)) {
+      /* This may still match if only one has an explicit port
+       * and it is the default for the scheme. */
+      if(base->port && href->port)
+        return FALSE;
+
+      s = Curl_get_scheme(base->scheme);
+      if(!s) /* Cannot match default port for unknown scheme */
+        return FALSE;
+
+      /* The port which is set must be the default one */
+      if((base->port && (base->portnum != s->defport)) ||
+         (href->port && (href->portnum != s->defport)))
+        return FALSE;
+    }
+  }
+  else if(href->port) /* no host in href, then there must be no port */
+    return FALSE;
+  return TRUE;
 }
