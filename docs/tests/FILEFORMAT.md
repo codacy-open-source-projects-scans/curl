@@ -193,15 +193,13 @@ Available substitute variables include:
 - `%RESOLVE` - server/resolve command
 - `%RTSP6PORT` - IPv6 port number of the RTSP server
 - `%RTSPPORT` - Port number of the RTSP server
-- `%SMBPORT` - Port number of the SMB server
-- `%SMBSPORT` - Port number of the SMBS server
 - `%SMTP6PORT` - IPv6 port number of the SMTP server
 - `%SMTPPORT` - Port number of the SMTP server
 - `%SOCKSPORT` - Port number of the SOCKS4/5 server
 - `%SOCKSUNIXPATH` - Path to the Unix socket of the SOCKS server
 - `%SRCDIR` - Full path to the source dir
-- `%SCP_PWD` - Current directory friendly for the SSH server for the scp:// protocol
-- `%SFTP_PWD` - Current directory friendly for the SSH server for the sftp:// protocol
+- `%SCP_PWD` - Current directory friendly for the SSH server for the `scp://` protocol
+- `%SFTP_PWD` - Current directory friendly for the SSH server for the `sftp://` protocol
 - `%SSHKEYALGO` - SSH host and client key algorithm, e.g. `ssh-rsa` or `ssh-ed25519`
 - `%SSHPORT` - Port number of the SCP/SFTP server
 - `%SSHSRVMD5` - MD5 of SSH server's public key
@@ -246,8 +244,9 @@ for users to skip certain classes of tests, if desired, but a few are treated
 specially by the test harness or build system.
 
 When running a unit test and the keywords include `unittest`, the `<tool>`
-section can be left empty to use the standard unit test tool name `unitN` where
-`N` is the test number.
+section can be left empty to use the standard unit test tool name `unitN`
+where `N` is the test number. Unit tests means *libcurl* unit tests. The
+command line tool's unit tests are marked as `tunittest`.
 
 The `test-ci` make target automatically skips test with the `flaky` keyword.
 
@@ -421,7 +420,7 @@ issue.
 
 Commands for the test DNS server.
 
-- `A: [dotted ipv4 address]` - set IPv4 address to return
+- `A: [dotted IPv4 address]` - set IPv4 address to return
 - `AAAA: [numerical IPv6 address]` - set IPv6 address to return, with or
   without `[]`
 
@@ -445,8 +444,6 @@ What server(s) this test case requires/uses. Available servers:
 - `https`
 - `https-proxy`
 - `https-mtls`
-- `httptls+srp`
-- `httptls+srp-ipv6`
 - `http-unix`
 - `imap`
 - `mqtt`
@@ -455,7 +452,6 @@ What server(s) this test case requires/uses. Available servers:
 - `rtsp-ipv6`
 - `scp`
 - `sftp`
-- `smb`
 - `smtp`
 - `socks4`
 - `socks5`
@@ -487,7 +483,7 @@ Features testable here are:
 - `brotli`
 - `c-ares` - c-ares is used for (all) name resolves
 - `CharConv`
-- `codeset-utf8`. If the running codeset is UTF-8 capable.
+- `codeset-utf8` - if the running codeset is UTF-8 capable.
 - `cookies`
 - `crypto`
 - `cygwin`
@@ -509,13 +505,13 @@ Features testable here are:
 - `IPv6`
 - `Kerberos`
 - `Largefile`
-- `large-time` (time_t is larger than 32-bit)
-- `large-size` (size_t is larger than 32-bit)
+- `large-time` - time_t is larger than 32-bit
+- `large-size` - size_t is larger than 32-bit
 - `libssh2`
 - `libssh`
-- `badlibssh` (libssh configuration incompatible with the test suite)
+- `badlibssh` - libssh configuration incompatible with the test suite
 - `libz`
-- `local-http`. The HTTP server runs on 127.0.0.1
+- `local-http` - the HTTP server runs on 127.0.0.1
 - `manual`
 - `mbedtls`
 - `Mime`
@@ -536,14 +532,16 @@ Features testable here are:
 - `SPNEGO`
 - `SSL`
 - `SSLpinning`
+- `SSLS-EXPORT`
 - `SSPI`
 - `threaded-resolver`
 - `TLS-SRP`
+- `torture` - if runtests is running in memory test mode
 - `TrackMemory`
 - `typecheck`
 - `threadsafe`
 - `Unicode`
-- `unittest`
+- `unittest` - that feature needs to be enabled also for the tool unit tests marked as `tunittest`
 - `UnixSockets`
 - `verbose-strings`
 - `wakeup`
@@ -570,9 +568,19 @@ is skipped and the (single-line) output is displayed as reason for not running
 the test.
 
 ### `<tool>`
+
 Name of tool to invoke instead of "curl". This tool must be built and exist
 either in the `libtest/` directory (if the tool name starts with `lib`) or in
 the `unit/` directory (if the tool name starts with `unit`).
+
+If the keyword `unittest` is set in the test case, the default name for the
+tool is `unit%TESTNUMBER`.
+
+If the keyword `tunittest` is set in the test case, the default name for the
+tool is `tool%TESTNUMBER`.
+
+If the keyword `libtest` is set in the test case, the default name for the
+tool is `lib%TESTNUMBER`.
 
 ### `<name>`
 Brief test case description, shown when the test runs.
@@ -589,7 +597,7 @@ command has been run.
 
 If the variable name has no assignment, no `=`, then that variable is deleted.
 
-### `<command [option="no-q/no-output/no-include/no-memdebug/force-output/binary-trace"] [timeout="secs"][delay="secs"][type="perl/shell"]>`
+### `<command [option="no-q/no-output/no-stdout/no-include/no-memdebug/force-output/binary-trace"] [timeout="secs"][delay="secs"][type="perl/shell"]>`
 Command line to run.
 
 If the command spans multiple lines, they are concatenated with a space added
@@ -604,6 +612,9 @@ there is no memory debugging and valgrind gets shut off for this test.
 Set `option="no-output"` to prevent the test script to slap on the `--output`
 argument that directs the output to a file. The `--output` is also not added
 if the verify/stdout section is used.
+
+Set `option="no-stdout"` to prevent the normal stdout redirect template to be
+applied on the command line to run.
 
 Set `option="force-output"` to make use of `--output` even when the test is
 otherwise written to verify stdout.

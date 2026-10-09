@@ -39,13 +39,14 @@ if [ -n "${CMAKE_GENERATOR:-}" ]; then
     *)       openssl_suffix='-Win64';;
   esac
 
-  if [ "${APPVEYOR_BUILD_WORKER_IMAGE}" = 'Visual Studio 2022' ]; then
+  if [ "${APPVEYOR_BUILD_WORKER_IMAGE}" = 'Visual Studio 2026' ]; then
     openssl_root_win="C:/OpenSSL-v36${openssl_suffix}"
-    openssl_root="$(cygpath "${openssl_root_win}")"
+  elif [ "${APPVEYOR_BUILD_WORKER_IMAGE}" = 'Visual Studio 2022' ]; then
+    openssl_root_win="C:/OpenSSL-v35${openssl_suffix}"
   elif [ "${APPVEYOR_BUILD_WORKER_IMAGE}" = 'Visual Studio 2019' ]; then
     openssl_root_win="C:/OpenSSL-v30${openssl_suffix}"
-    openssl_root="$(cygpath "${openssl_root_win}")"
   fi
+  [ -n "${openssl_root_win:-}" ] && openssl_root="$(cygpath "${openssl_root_win}")"
 
   # Install custom cmake version
   if [ -n "${CMAKE_VERSION:-}" ]; then
@@ -58,9 +59,9 @@ if [ -n "${CMAKE_GENERATOR:-}" ]; then
       fn="cmake-${CMAKE_VERSION}-win64-x64"
     fi
     curl --disable --fail --silent --show-error --connect-timeout 15 --max-time 60 --retry 3 --retry-connrefused \
-      --location "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/${fn}.zip" --output pkg.bin
+      --location --proto-redir =https "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/${fn}.zip" --output pkg.bin
     sha256sum pkg.bin && sha256sum pkg.bin | grep -qwF -- "${CMAKE_SHA256}" && 7z x -y pkg.bin >/dev/null && rm -f pkg.bin
-    PATH="$PWD/${fn}/bin:$PATH"
+    PATH="$(pwd)/${fn}/bin:$PATH"
   fi
 
   # Set env CHKPREFILL to the value '_chkprefill' to compare feature detection
@@ -72,12 +73,12 @@ if [ -n "${CMAKE_GENERATOR:-}" ]; then
     [[ "${CMAKE_GENERATE:-}" = *'-DCURL_USE_OPENSSL=ON'* ]] && options+=" -DOPENSSL_ROOT_DIR=${openssl_root_win}"
     # shellcheck disable=SC2086
     time cmake -B "_bld${_chkprefill}" \
-      -DENABLE_DEBUG=ON \
       -DCMAKE_UNITY_BUILD=ON -DCURL_WERROR=ON \
       -DCMAKE_VS_GLOBALS=TrackFileAccess=false \
       -DCURL_STATIC_CRT=ON \
       -DCURL_DROP_UNUSED=ON \
       -DCURL_USE_SCHANNEL=ON -DCURL_USE_LIBPSL=OFF \
+      -DCURL_DISABLE_HTTPSIG=OFF \
       ${CMAKE_GENERATE:-} \
       ${options} \
       || { cat _bld/CMakeFiles/CMake* 2>/dev/null; false; }
@@ -87,8 +88,9 @@ if [ -n "${CMAKE_GENERATOR:-}" ]; then
     false
   fi
   echo 'curl_config.h'; grep -F '#define' _bld/lib/curl_config.h | sort || true
+  echo 'libcurl.pc'; grep -v '^#' '_bld/libcurl.pc' || true
   time cmake --build _bld --config "${PRJ_CFG}" --parallel 2
-  [[ "${CMAKE_GENERATE:-}" != *'-DBUILD_SHARED_LIBS=OFF'* ]] && PATH="$PWD/_bld/lib/${PRJ_CFG}:$PATH"
+  [[ "${CMAKE_GENERATE:-}" != *'-DBUILD_SHARED_LIBS=OFF'* ]] && PATH="$(pwd)/_bld/lib/${PRJ_CFG}:$PATH"
   [[ "${CMAKE_GENERATE:-}" = *'-DCURL_USE_OPENSSL=ON'* ]] && { PATH="${openssl_root}:$PATH"; cp "${openssl_root}"/*.dll "_bld/src/${PRJ_CFG}"; }
   curl="_bld/src/${PRJ_CFG}/curl.exe"
 else
@@ -102,13 +104,37 @@ else
   curl="build/${platdir}/${VC_VERSION}/${PRJ_CFG}/curl${binsuffix}.exe"
 fi
 
-find . \( -name '*.exe' -o -name '*.dll' -o -name '*.lib' -o -name '*.pdb' \) -print0 | grep -z curl | xargs -0 file --
-find . \( -name '*.exe' -o -name '*.dll' -o -name '*.lib' -o -name '*.pdb' \) -print0 | grep -z curl | xargs -0 stat -c '%10s bytes: %n' --
+find . \( -name '*.exe' -o -name '*.dll' -o -name '*.lib' -o -name '*.pdb' \) -print0 | grep -z curl | sort -z | xargs -0 file --
+find . \( -name '*.exe' -o -name '*.dll' -o -name '*.lib' -o -name '*.pdb' \) -print0 | grep -z curl | sort -z | xargs -0 stat -c '%10s bytes: %n' --
 
 if [ -z "${SKIP_RUN:-}" ]; then
   "${curl}" --disable --version
 else
   echo "Skip running curl.exe. Reason: ${SKIP_RUN}"
+fi
+
+# create artifact
+
+if [[ "${CREATE_ARTIFACT:-}" = 'true' ]]; then
+  cp /usr/ssl/certs/ca-bundle.crt curl-ca-bundle.crt
+  echo 'Checking that https works (it should find curl-ca-bundle.crt if needed)'
+  "${curl}" -v -fsS --retry 6 --retry-all-errors -o /dev/null https://curl.se/
+  if [ -n "${APPVEYOR_PULL_REQUEST_NUMBER:-}" ]; then
+    archive="curl_pr${APPVEYOR_PULL_REQUEST_NUMBER}_${APPVEYOR_PULL_REQUEST_HEAD_COMMIT}.zip"
+  else
+    archive="curl_${APPVEYOR_REPO_COMMIT}.zip"
+  fi
+  {
+    echo 'WARNING: Do not run this build unless the download link was provided by staff.'
+    echo 'Anyone can submit a PR with possibly malicious code to generate a build.'
+    echo "${archive}"
+  } > WARNING.txt
+  echo 'Finding curl module dependencies'
+  "${curl}" --dump-module-paths | grep -Fv 'C:\Windows' | tee > files.tmp
+  echo 'Creating artifact'
+  7z a "${archive}" -y -bb1 -bsp0 -mx9 -tzip -i@files.tmp curl-ca-bundle.crt WARNING.txt
+  rm files.tmp
+  appveyor PushArtifact "${archive}"
 fi
 
 # build tests

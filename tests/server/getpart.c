@@ -37,7 +37,7 @@
  * line_length()
  *
  * Counts the number of characters in a line including a new line.
- * Unlike strlen() it does not stop at nul bytes.
+ * Unlike strlen() it does not stop at NUL bytes.
  *
  */
 static size_t line_length(const char *buffer, int bytestocheck)
@@ -67,7 +67,7 @@ static size_t line_length(const char *buffer, int bytestocheck)
  *
  * Calling function may call this multiple times with same 'buffer'
  * and 'bufsize' pointers to avoid multiple buffer allocations. Buffer
- * will be reallocated and 'bufsize' increased until whole line fits in
+ * is reallocated and 'bufsize' increased until whole line fits in
  * buffer before returning it.
  *
  * Calling function is responsible to free allocated buffer.
@@ -122,7 +122,7 @@ static int readline(char **buffer, size_t *bufsize, size_t *length,
  * This appends data from a given source buffer to the end of the used part of
  * a destination buffer. Arguments relative to the destination buffer are, the
  * address of a pointer to the destination buffer 'dst_buf', the length of data
- * in destination buffer excluding potential null string termination 'dst_len',
+ * in destination buffer excluding potential string null-terminator 'dst_len',
  * the allocated size of destination buffer 'dst_alloc'. All three destination
  * buffer arguments may be modified by this function. Arguments relative to the
  * source buffer are, a pointer to the source buffer 'src_buf' and indication
@@ -132,7 +132,7 @@ static int readline(char **buffer, size_t *bufsize, size_t *length,
  * decoded data, binary or whatever, to the destination. The source buffer
  * may not hold binary data, only a null-terminated string is valid content.
  *
- * Destination buffer will be enlarged and relocated as needed.
+ * Destination buffer is enlarged and relocated as needed.
  *
  * Calling function is responsible to provide preallocated destination
  * buffer and also to deallocate it when no longer needed.
@@ -202,7 +202,7 @@ static int decodedata(char **buf,  /* dest buffer */
     /*
      * currently there is no way to tell apart an OOM condition in
      * curlx_base64_decode() from zero length decoded data. For now,
-     * let's just assume it is an OOM condition, currently we have
+     * let's assume it is an OOM condition, currently we have
      * no input for this function that decodes to zero length data.
      */
     free(buf64);
@@ -230,8 +230,8 @@ static int decodedata(char **buf,  /* dest buffer */
  * Data is returned in a dynamically allocated buffer, a pointer to this data
  * and the size of the data is stored at the addresses that caller specifies.
  *
- * If the returned data is a string the returned size will be the length of
- * the string excluding null-termination. Otherwise it will just be the size
+ * If the returned data is a string the returned size is the length of
+ * the string excluding null-termination. Otherwise it is the size
  * of the returned binary data.
  *
  * Calling function is responsible to free returned buffer.

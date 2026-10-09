@@ -45,7 +45,7 @@ static int writeTime(FILE *stream, const struct writeoutvar *wovar,
                      struct per_transfer *per, CURLcode per_result,
                      bool use_json)
 {
-  bool valid = false;
+  bool valid = FALSE;
   curl_off_t us = 0;
 
   (void)per;
@@ -54,7 +54,7 @@ static int writeTime(FILE *stream, const struct writeoutvar *wovar,
 
   if(wovar->ci) {
     if(!curl_easy_getinfo(per->curl, wovar->ci, &us))
-      valid = true;
+      valid = TRUE;
   }
   else {
     DEBUGASSERT(0);
@@ -173,7 +173,7 @@ static int writeString(FILE *stream, const struct writeoutvar *wovar,
                        struct per_transfer *per, CURLcode per_result,
                        bool use_json)
 {
-  bool valid = false;
+  bool valid = FALSE;
   const char *strinfo = NULL;
   const char *freestr = NULL;
   struct dynbuf buf;
@@ -189,7 +189,7 @@ static int writeString(FILE *stream, const struct writeoutvar *wovar,
         while(m->str) {
           if(m->num == version) {
             strinfo = m->str;
-            valid = true;
+            valid = TRUE;
             break;
           }
           m++;
@@ -198,7 +198,7 @@ static int writeString(FILE *stream, const struct writeoutvar *wovar,
     }
     else {
       if(!curl_easy_getinfo(per->curl, wovar->ci, &strinfo) && strinfo)
-        valid = true;
+        valid = TRUE;
     }
   }
   else {
@@ -228,12 +228,10 @@ static int writeString(FILE *stream, const struct writeoutvar *wovar,
             len = curlx_dyn_len(&buf);
             if(len) {
               char *ptr = curlx_dyn_ptr(&buf);
-              if(ptr[len - 1] != '\n') {
-                /* add a newline to make things look better */
-                if(curlx_dyn_addn(&buf, "\n", 1)) {
-                  error = TRUE;
-                  break;
-                }
+              /* add a newline to make things look better */
+              if(ptr[len - 1] != '\n' && curlx_dyn_addn(&buf, "\n", 1)) {
+                error = TRUE;
+                break;
               }
             }
           }
@@ -243,7 +241,7 @@ static int writeString(FILE *stream, const struct writeoutvar *wovar,
           if(!strinfo)
             /* maybe not a TLS protocol */
             strinfo = "";
-          valid = true;
+          valid = TRUE;
         }
       }
       else
@@ -251,21 +249,21 @@ static int writeString(FILE *stream, const struct writeoutvar *wovar,
       break;
     case VAR_ERRORMSG:
       if(per_result) {
-        strinfo = (per->errorbuffer[0]) ? per->errorbuffer :
+        strinfo = per->errorbuffer[0] ? per->errorbuffer :
           curl_easy_strerror(per_result);
-        valid = true;
+        valid = TRUE;
       }
       break;
     case VAR_EFFECTIVE_FILENAME:
       if(per->outs.filename) {
         strinfo = per->outs.filename;
-        valid = true;
+        valid = TRUE;
       }
       break;
     case VAR_INPUT_URL:
       if(per->url) {
         strinfo = per->url;
-        valid = true;
+        valid = TRUE;
       }
       break;
     case VAR_INPUT_URLSCHEME:
@@ -288,11 +286,9 @@ static int writeString(FILE *stream, const struct writeoutvar *wovar,
     case VAR_INPUT_URLEQUERY:
     case VAR_INPUT_URLEFRAGMENT:
     case VAR_INPUT_URLEZONEID:
-      if(per->url) {
-        if(!urlpart(per, wovar->id, &strinfo)) {
-          freestr = strinfo;
-          valid = true;
-        }
+      if(per->url && !urlpart(per, wovar->id, &strinfo)) {
+        freestr = strinfo;
+        valid = TRUE;
       }
       break;
     default:
@@ -324,33 +320,33 @@ static int writeLong(FILE *stream, const struct writeoutvar *wovar,
                      struct per_transfer *per, CURLcode per_result,
                      bool use_json)
 {
-  bool valid = false;
+  bool valid = FALSE;
   long longinfo = 0;
 
   DEBUGASSERT(wovar->writefunc == writeLong);
 
   if(wovar->ci) {
     if(!curl_easy_getinfo(per->curl, wovar->ci, &longinfo))
-      valid = true;
+      valid = TRUE;
   }
   else {
     switch(wovar->id) {
     case VAR_NUM_RETRY:
       longinfo = per->num_retries;
-      valid = true;
+      valid = TRUE;
       break;
     case VAR_NUM_CERTS:
       certinfo(per);
       longinfo = per->certinfo ? per->certinfo->num_of_certs : 0;
-      valid = true;
+      valid = TRUE;
       break;
     case VAR_NUM_HEADERS:
       longinfo = per->num_headers;
-      valid = true;
+      valid = TRUE;
       break;
     case VAR_EXITCODE:
       longinfo = (long)per_result;
-      valid = true;
+      valid = TRUE;
       break;
     default:
       DEBUGASSERT(0);
@@ -380,7 +376,7 @@ static int writeOffset(FILE *stream, const struct writeoutvar *wovar,
                        struct per_transfer *per, CURLcode per_result,
                        bool use_json)
 {
-  bool valid = false;
+  bool valid = FALSE;
   curl_off_t offinfo = 0;
 
   (void)per;
@@ -389,14 +385,14 @@ static int writeOffset(FILE *stream, const struct writeoutvar *wovar,
 
   if(wovar->ci) {
     if(!curl_easy_getinfo(per->curl, wovar->ci, &offinfo))
-      valid = true;
+      valid = TRUE;
   }
   else {
     switch(wovar->id) {
     case VAR_URLNUM:
       if(per->urlnum <= INT_MAX) {
         offinfo = per->urlnum;
-        valid = true;
+        valid = TRUE;
       }
       break;
     default:
@@ -562,18 +558,39 @@ static const char *outtime(const char *ptr, /* %time{ ... */
     vlen = end - ptr;
     curlx_dyn_init(&format, 1024);
 
-    /* insert sub-seconds for %f */
-    /* insert +0000 for %z because it is otherwise not portable */
-    /* insert UTC for %Z because it is otherwise not portable */
+    /* Insert:
+       - sub-seconds for %f
+       - epoch seconds for %s; strftime %s uses mktime() and assumes
+         local time, which breaks UTC output on non-UTC hosts
+       - +0000 for %z because it is otherwise not portable
+       - UTC for %Z because it is otherwise not portable
+       - Keep '%%' as-is so that strftime() makes a single % out of them
+     */
     for(i = 0; !result && i < vlen; i++) {
-      if((i < vlen - 1) && ptr[i] == '%' &&
-         ((ptr[i + 1] == 'f') || ((ptr[i + 1] | 0x20) == 'z'))) {
-        if(ptr[i + 1] == 'f')
+      if((i < vlen - 1) && ptr[i] == '%') {
+        switch(ptr[i + 1]) {
+        case 'f':
           result = curlx_dyn_addf(&format, "%06u", usecs);
-        else if(ptr[i + 1] == 'Z')
+          break;
+        case 's': {
+          /* time_t might be either 32 or 64 bits big */
+          curl_off_t tsecs = secs;
+          result = curlx_dyn_addf(&format, "%" CURL_FORMAT_CURL_OFF_T, tsecs);
+          break;
+        }
+        case 'Z':
           result = curlx_dyn_addn(&format, "UTC", 3);
-        else
+          break;
+        case 'z':
           result = curlx_dyn_addn(&format, "+0000", 5);
+          break;
+        case '%':
+          result = curlx_dyn_addn(&format, "%%", 2);
+          break;
+        default:
+          result = curlx_dyn_addn(&format, &ptr[i], 1);
+          continue;
+        }
         i++;
       }
       else
@@ -657,13 +674,11 @@ static void output_header(struct per_transfer *per,
     size_t seplen = 0;
     size_t vlen = end - ptr;
     instr = memchr(ptr, ':', vlen);
-    if(instr) {
-      /* instructions follow */
-      if(!strncmp(&instr[1], "all:", 4)) {
-        sep = &instr[5];
-        seplen = end - sep;
-        vlen -= (seplen + 5);
-      }
+    /* instructions follow */
+    if(instr && !strncmp(&instr[1], "all:", 4)) {
+      sep = &instr[5];
+      seplen = end - sep;
+      vlen -= (seplen + 5);
     }
     if(vlen < sizeof(hname)) {
       memcpy(hname, ptr, vlen);
@@ -787,7 +802,7 @@ void ourWriteOut(struct OperationConfig *config, struct per_transfer *per,
               headerJSON(stream, per);
               break;
             default:
-              (void)wv->writefunc(stream, wv, per, per_result, false);
+              (void)wv->writefunc(stream, wv, per, per_result, FALSE);
               break;
             }
           }

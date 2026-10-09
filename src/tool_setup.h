@@ -47,7 +47,7 @@ extern FILE *tool_stderr;
 
 #include "curlx/base64.h" /* for curlx_base64* */
 #include "curlx/dynbuf.h" /* for curlx_dyn_*() */
-#include "curlx/fopen.h" /* for curlx_f*() */
+#include "curlx/win32-fopen.h" /* for curlx_f*() */
 #include "curlx/multibyte.h" /* for curlx_convert_*() */
 #include "curlx/strcopy.h" /* for curlx_strcopy() */
 #include "curlx/strdup.h" /* for curlx_memdup*() */
@@ -102,6 +102,8 @@ int toolx_ftruncate_win32(int fd, curl_off_t where);
 #elif defined(__DJGPP__)
 int toolx_ftruncate_djgpp(int fd, curl_off_t where);
 #define toolx_ftruncate toolx_ftruncate_djgpp
+#elif defined(__AMIGA__)
+#define toolx_ftruncate(f, o) ftruncate(f, (off_t)(o))
 #else
 #define toolx_ftruncate ftruncate
 #endif

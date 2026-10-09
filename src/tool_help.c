@@ -51,6 +51,7 @@ static const struct category_descriptors categories[] = {
   { "http", "HTTP and HTTPS protocol", CURLHELP_HTTP },
   { "imap", "IMAP protocol", CURLHELP_IMAP },
   { "ldap", "LDAP protocol", CURLHELP_LDAP },
+  { "mqtt", "MQTT protocol", CURLHELP_MQTT },
   { "output", "File system output", CURLHELP_OUTPUT },
   { "pop3", "POP3 protocol", CURLHELP_POP3 },
   { "post", "HTTP POST specific", CURLHELP_POST },
@@ -166,8 +167,9 @@ void inithelpscan(struct scan_ctx *ctx,
   ctx->flen = strlen(arg);
   ctx->endarg = endarg;
   ctx->elen = strlen(endarg);
-  DEBUGASSERT((ctx->elen < sizeof(ctx->rbuf)) ||
-              (ctx->flen < sizeof(ctx->rbuf)));
+  DEBUGASSERT((ctx->elen < sizeof(ctx->rbuf)) &&
+              (ctx->flen < sizeof(ctx->rbuf)) &&
+              (ctx->tlen < sizeof(ctx->rbuf)));
   ctx->show = 0;
   ctx->olen = 0;
   memset(ctx->rbuf, 0, sizeof(ctx->rbuf));
@@ -267,7 +269,7 @@ void tool_help(const char *category)
            option */
         a = NULL;
     }
-    else if(!category[2])
+    else if(category[1] && !category[2])
       a = findshortopt(category[1]);
     if(!a) {
       curl_mfprintf(tool_stderr, "Incorrect option name to show help for,"

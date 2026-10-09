@@ -4,6 +4,7 @@
 <keywords>
 PROGRESSFUNCTION
 DELAY
+libtest
 </keywords>
 </info>
 
@@ -23,14 +24,11 @@ wait 10
 <server>
 http
 </server>
-<tool>
-lib%TESTNUMBER
-</tool>
 <name>
 return failure immediately from progress callback
 </name>
 
-# this server/host will not be used for real
+# this server/host is not used for real
 <command>
 http://%HOSTIP:%HTTPPORT/%TESTNUMBER
 </command>

@@ -23,7 +23,7 @@
  ***************************************************************************/
 #include "unitcheck.h"
 #include "urldata.h"
-#include "connect.h"
+#include "strcase.h"
 #include "curl_addrinfo.h"
 
 static CURLcode t1607_setup(void)
@@ -31,6 +31,27 @@ static CURLcode t1607_setup(void)
   CURLcode result = CURLE_OK;
   global_init(CURL_GLOBAL_ALL);
   return result;
+}
+
+struct t1607_key {
+  uint8_t data[255 + 3];
+  size_t len;
+};
+
+static void t1607_create_key(struct t1607_key *key,
+                             const char *hostname,
+                             uint16_t port,
+                             uint8_t type)
+{
+  size_t namelen = strlen(hostname);
+  if(namelen > (sizeof(key->data) - 3))
+    namelen = sizeof(key->data) - 3;
+  /* store and lower case the name */
+  key->data[0] = type;
+  key->data[1] = (uint8_t)((port >> 8) & 0xff);
+  key->data[2] = (uint8_t)(port & 0xff);
+  Curl_strntolower((char *)key->data + 3, hostname, namelen);
+  key->len = namelen + 3;
 }
 
 static CURLcode test_unit1607(const char *arg)
@@ -52,7 +73,7 @@ static CURLcode test_unit1607(const char *arg)
 
     /* lowercase host and port to retrieve the addresses from hostcache */
     const char *host;
-    int port;
+    uint16_t port;
 
     /* whether we expect a permanent or non-permanent cache entry */
     bool permanent;
@@ -109,11 +130,12 @@ static CURLcode test_unit1607(const char *arg)
     size_t addressnum = CURL_ARRAYSIZE(tests[i].address);
     struct Curl_addrinfo *addr;
     struct Curl_dns_entry *dns;
-    void *entry_id;
-    bool problem = false;
+    struct t1607_key entry_id;
+    bool problem = FALSE;
     easy = curl_easy_init();
     if(!easy)
       goto error;
+    curl_easy_setopt(easy, CURLOPT_VERBOSE, 1L);
 
     /* create a multi handle and add the easy handle to it so that the
        hostcache is setup */
@@ -127,13 +149,9 @@ static CURLcode test_unit1607(const char *arg)
 
     Curl_loadhostpairs(easy);
 
-    entry_id = (void *)curl_maprintf("%s:%d", tests[i].host, tests[i].port);
-    if(!entry_id)
-      goto error;
+    t1607_create_key(&entry_id, tests[i].host, tests[i].port, CURL_DNST_ADDR);
     dns = Curl_hash_pick(&multi->dnscache.entries,
-                         entry_id, strlen(entry_id) + 1);
-    curlx_free(entry_id);
-    entry_id = NULL;
+                         entry_id.data, entry_id.len);
 
     addr = dns ? dns->addr : NULL;
 
@@ -147,12 +165,12 @@ static CURLcode test_unit1607(const char *arg)
       if(tests[i].address[j] == &skip)
         continue;
 
-      if(addr && !Curl_addr2string(addr->ai_addr, addr->ai_addrlen,
-                                   ipaddress, &port)) {
+      if(addr && sockaddr2string(addr->ai_addr, addr->ai_addrlen,
+                                 ipaddress, &port)) {
         curl_mfprintf(stderr, "%s:%d tests[%zu] failed. "
                       "getaddressinfo failed.\n",
                       __FILE__, __LINE__, i);
-        problem = true;
+        problem = TRUE;
         break;
       }
 
@@ -160,7 +178,7 @@ static CURLcode test_unit1607(const char *arg)
         curl_mfprintf(stderr, "%s:%d tests[%zu] failed. the retrieved addr "
                       "is %s but tests[%zu].address[%zu] is NULL.\n",
                       __FILE__, __LINE__, i, ipaddress, i, j);
-        problem = true;
+        problem = TRUE;
         break;
       }
 
@@ -168,7 +186,7 @@ static CURLcode test_unit1607(const char *arg)
         curl_mfprintf(stderr, "%s:%d tests[%zu] failed. the retrieved addr "
                       "is NULL but tests[%zu].address[%zu] is %s.\n",
                       __FILE__, __LINE__, i, i, j, tests[i].address[j]);
-        problem = true;
+        problem = TRUE;
         break;
       }
 
@@ -177,7 +195,7 @@ static CURLcode test_unit1607(const char *arg)
                       "%s is not equal to tests[%zu].address[%zu] %s.\n",
                       __FILE__, __LINE__, i, ipaddress, i, j,
                       tests[i].address[j]);
-        problem = true;
+        problem = TRUE;
         break;
       }
 
@@ -186,24 +204,24 @@ static CURLcode test_unit1607(const char *arg)
                       "for tests[%zu].address[%zu] is %d "
                       "but tests[%zu].port is %d.\n",
                       __FILE__, __LINE__, i, i, j, port, i, tests[i].port);
-        problem = true;
+        problem = TRUE;
         break;
       }
 
-      if(dns->timestamp.tv_sec && tests[i].permanent) {
+      if(!dns->permanent && tests[i].permanent) {
         curl_mfprintf(stderr,
-                      "%s:%d tests[%zu] failed. the timestamp is not zero "
+                      "%s:%d tests[%zu] failed. the permanent bit is not set "
                       "but tests[%zu].permanent is TRUE\n",
                       __FILE__, __LINE__, i, i);
-        problem = true;
+        problem = TRUE;
         break;
       }
 
-      if(dns->timestamp.tv_sec == 0 && !tests[i].permanent) {
-        curl_mfprintf(stderr, "%s:%d tests[%zu] failed. the timestamp is zero "
-                      "but tests[%zu].permanent is FALSE\n",
+      if(dns->permanent && !tests[i].permanent) {
+        curl_mfprintf(stderr, "%s:%d tests[%zu] failed. the permanent bit "
+                      "is set but tests[%zu].permanent is FALSE\n",
                       __FILE__, __LINE__, i, i);
-        problem = true;
+        problem = TRUE;
         break;
       }
 

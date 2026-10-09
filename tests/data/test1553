@@ -5,6 +5,7 @@
 IMAP
 Clear Text
 FETCH
+libtest
 </keywords>
 </info>
 
@@ -34,12 +35,9 @@ Mime
 imap
 </server>
 <name>
-IMAP cleanup before a connection was created
+IMAP cleanup with non-existing hostname
 </name>
 # tool is what to use instead of 'curl'
-<tool>
-lib%TESTNUMBER
-</tool>
 
 # this MUST use a hostname that does not resolve
 <command>

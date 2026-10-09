@@ -24,7 +24,7 @@
 # Shared between CMakeLists.txt and Makefile.am
 
 # Using the backslash as line continuation character might be problematic with
-# some make flavours. If we ever want to change this in a portable manner then
+# some make flavors. If we ever want to change this in a portable manner then
 # we should consider this idea :
 # CSRC1 = file1.c file2.c file3.c
 # CSRC2 = file4.c file5.c file6.c
@@ -36,7 +36,7 @@ CURLX_CFILES = \
   ../lib/curlx/base64.c \
   ../lib/curlx/basename.c \
   ../lib/curlx/dynbuf.c \
-  ../lib/curlx/fopen.c \
+  ../lib/curlx/win32-fopen.c \
   ../lib/curlx/multibyte.c \
   ../lib/curlx/nonblock.c \
   ../lib/curlx/strcopy.c \
@@ -55,7 +55,7 @@ CURLX_HFILES = \
   ../lib/curlx/base64.h \
   ../lib/curlx/basename.h \
   ../lib/curlx/dynbuf.h \
-  ../lib/curlx/fopen.h \
+  ../lib/curlx/win32-fopen.h \
   ../lib/curlx/multibyte.h \
   ../lib/curlx/nonblock.h \
   ../lib/curlx/strcopy.h \

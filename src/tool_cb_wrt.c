@@ -34,6 +34,42 @@
 #define OPENMODE (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
 #endif
 
+#define MAX_CLOBBER_ATTEMPTS 9999
+
+/* 'fname' contains [path + ] file name */
+static bool clobber_name(struct dynbuf *fbuf, const char *fname,
+                         int next_num)
+{
+  /* skip the directory, if present */
+  const char *slash = strrchr(fname, '/');
+  const char *base = fname;
+  const char *dot;
+#ifdef _WIN32
+  const char *bslash = strrchr(fname, '\\');
+  /* use the one furthest away */
+  if(bslash && (!slash || (bslash > slash)))
+    slash = bslash;
+#endif
+  if(slash)
+    base = slash + 1;
+
+  dot = strrchr(base, '.');
+  curlx_dyn_reset(fbuf);
+  if(dot && (dot != base) && dot[1]) {
+    /* there is an extension after the dot and the dot is not the first file
+       name character */
+    int prefix = (int)(dot - fname);
+    if(curlx_dyn_addf(fbuf, "%.*s-%d.%s", prefix, fname, next_num, dot + 1))
+      return FALSE;
+  }
+  else {
+    /* without any extension */
+    if(curlx_dyn_addf(fbuf, "%s.%d", fname, next_num))
+      return FALSE;
+  }
+  return TRUE;
+}
+
 /* create/open a local file for writing, return TRUE on success */
 bool tool_create_output_file(struct OutStruct *outs,
                              struct OperationConfig *config)
@@ -62,14 +98,25 @@ bool tool_create_output_file(struct OutStruct *outs,
       int next_num = 1;
       struct dynbuf fbuffer;
       char *newfile;
+      int max_num = MAX_CLOBBER_ATTEMPTS;
+#ifdef DEBUGBUILD
+      char *p = curl_getenv("CURL_MAX_CLOBBER");
+      if(p) {
+        const char *pp = p;
+        curl_off_t val;
+        if(!curlx_str_number(&pp, &val, 100000))
+          max_num = (int)val;
+        curl_free(p);
+      }
+#endif
       curlx_dyn_init(&fbuffer, 1025);
       /* !checksrc! disable ERRNOVAR 1 */
       while(fd == -1 && /* have not successfully opened a file */
-            (errno == EEXIST || errno == EISDIR) &&
             /* because we keep having files that already exist */
-            next_num < 100 /* and we have not reached the retry limit */) {
-        curlx_dyn_reset(&fbuffer);
-        if(curlx_dyn_addf(&fbuffer, "%s.%d", fname, next_num))
+            (errno == EEXIST || errno == EISDIR) &&
+            /* and we have not reached the retry limit */
+            (next_num < max_num)) {
+        if(!clobber_name(&fbuffer, fname, next_num))
           return FALSE;
         next_num++;
         do {
@@ -125,12 +172,12 @@ static size_t win_console(intptr_t fhnd, struct OutStruct *outs,
   /* attempt to complete an incomplete UTF-8 sequence from previous call. the
      sequence does not have to be well-formed. */
   if(outs->utf8seq[0] && rlen) {
-    bool complete = false;
+    bool complete = FALSE;
     /* two byte sequence (lead byte 110yyyyy) */
     if(0xC0 <= outs->utf8seq[0] && outs->utf8seq[0] < 0xE0) {
       outs->utf8seq[1] = *rbuf++;
       --rlen;
-      complete = true;
+      complete = TRUE;
     }
     /* three byte sequence (lead byte 1110zzzz) */
     else if(0xE0 <= outs->utf8seq[0] && outs->utf8seq[0] < 0xF0) {
@@ -141,7 +188,7 @@ static size_t win_console(intptr_t fhnd, struct OutStruct *outs,
       if(rlen && !outs->utf8seq[2]) {
         outs->utf8seq[2] = *rbuf++;
         --rlen;
-        complete = true;
+        complete = TRUE;
       }
     }
     /* four byte sequence (lead byte 11110uuu) */
@@ -157,7 +204,7 @@ static size_t win_console(intptr_t fhnd, struct OutStruct *outs,
       if(rlen && !outs->utf8seq[3]) {
         outs->utf8seq[3] = *rbuf++;
         --rlen;
-        complete = true;
+        complete = TRUE;
       }
     }
 
@@ -213,8 +260,7 @@ static size_t win_console(intptr_t fhnd, struct OutStruct *outs,
 
     /* grow the buffer if needed */
     if(len > global->term.len) {
-      wchar_t *buf = (wchar_t *)curlx_realloc(global->term.buf,
-                                              len * sizeof(wchar_t));
+      wchar_t *buf = curlx_realloc(global->term.buf, len * sizeof(wchar_t));
       if(!buf)
         return CURL_WRITEFUNC_ERROR;
       global->term.len = len;
@@ -238,9 +284,8 @@ static size_t win_console(intptr_t fhnd, struct OutStruct *outs,
 #endif /* _WIN32 */
 
 /*
-** callback for CURLOPT_WRITEFUNCTION
-*/
-
+ * callback for CURLOPT_WRITEFUNCTION
+ */
 size_t tool_write_cb(char *buffer, size_t sz, size_t nmemb, void *userdata)
 {
   size_t rc;
@@ -258,14 +303,6 @@ size_t tool_write_cb(char *buffer, size_t sz, size_t nmemb, void *userdata)
     return bytes;
 
 #ifdef DEBUGBUILD
-  {
-    char *tty = curl_getenv("CURL_ISATTY");
-    if(tty) {
-      is_tty = TRUE;
-      curl_free(tty);
-    }
-  }
-
   if(config->show_headers) {
     if(bytes > (size_t)CURL_MAX_HTTP_HEADER) {
       warnf("Header data size exceeds write limit");
@@ -318,7 +355,6 @@ size_t tool_write_cb(char *buffer, size_t sz, size_t nmemb, void *userdata)
       warnf("Binary output can mess up your terminal. "
             "Use \"--output -\" to tell curl to output it to your terminal "
             "anyway, or consider \"--output <FILE>\" to save to a file.");
-      config->synthetic_error = TRUE;
       return CURL_WRITEFUNC_ERROR;
     }
   }
@@ -335,10 +371,9 @@ size_t tool_write_cb(char *buffer, size_t sz, size_t nmemb, void *userdata)
   else
 #endif
   {
-    if(per->hdrcbdata.headlist) {
-      if(tool_write_headers(&per->hdrcbdata, outs->stream))
-        return CURL_WRITEFUNC_ERROR;
-    }
+    if(per->hdrcbdata.headlist &&
+       tool_write_headers(&per->hdrcbdata, outs->stream))
+      return CURL_WRITEFUNC_ERROR;
     rc = fwrite(buffer, sz, nmemb, outs->stream);
   }
 

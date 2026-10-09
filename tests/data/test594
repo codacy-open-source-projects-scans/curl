@@ -12,7 +12,7 @@ multi
 EPRT refused
 NODATACONN
 timeout
-FAILURE
+libtest
 </keywords>
 </info>
 

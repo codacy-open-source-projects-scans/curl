@@ -31,6 +31,11 @@ static CURLcode test_lib517(const char *URL)
   };
 
   static const struct dcheck dates[] = {
+    { "Sat May 5 GMT 11:56:27 2035", 2061978987 },
+    { "Sat, May 5 GMT 11:56:27 2035", 2061978987 },
+    { "Saturday, May 5 GMT 11:56:27 2035", 2061978987 },
+    { "Saturdax, May 5 GMT 11:56:27 2035", -1 },
+    { "Saturda, May 5 GMT 11:56:27 2035", -1 },
     { "Sun, 06 Nov 1994 08:49:37 GMT", 784111777 },
     { "Sunday, 06-Nov-94 08:49:37 GMT", 784111777 },
     { "Sun Nov  6 08:49:37 1994", 784111777 },
@@ -73,9 +78,9 @@ static CURLcode test_lib517(const char *URL)
     { "1-Jan-2003 00:00:00 GMT", 1041379200 },
     { "1-Jan-2003 00:00:00 GMT", 1041379200 },
     { "Wed,18-Apr-07 22:50:12 GMT", 1176936612 },
-    { "WillyWonka  , 18-Apr-07 22:50:12 GMT", -1 },
-    { "WillyWonka  , 18-Apr-07 22:50:12", -1 },
-    { "WillyWonka  ,  18-apr-07   22:50:12", -1 },
+    { "BillyWonka  , 18-Apr-07 22:50:12 GMT", -1 },
+    { "BillyWonka  , 18-Apr-07 22:50:12", -1 },
+    { "BillyWonka  ,  18-apr-07   22:50:12", -1 },
     { "Mon, 18-Apr-1977 22:50:13 GMT", 230251813 },
     { "Mon, 18-Apr-77 22:50:13 GMT", 230251813 },
     { "Sat, 15-Apr-17\"21:01:22\"GMT", 1492290082 },
@@ -250,6 +255,11 @@ static CURLcode test_lib517(const char *URL)
                    (curl_off_t)out, (curl_off_t)dates[i].output);
       error++;
     }
+  }
+
+  if(curl_getdate(NULL, NULL) != (time_t)-1) {
+    curl_mprintf("WRONGLY parsed NULL string\n");
+    error++;
   }
 
   return error == 0 ? CURLE_OK : TEST_ERR_FAILURE;

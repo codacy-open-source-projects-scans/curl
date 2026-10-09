@@ -24,7 +24,7 @@ Get a directory listing of an FTP site:
 
     curl ftp://ftp.example.com/
 
-Get the all terms matching curl from a dictionary:
+Get all terms matching curl from a dictionary:
 
     curl dict://dict.example.com/m:curl
 
@@ -57,15 +57,11 @@ Get a file from an SSH server using SCP using a private key
 (password-protected) to authenticate:
 
     curl -u username: --key ~/.ssh/id_rsa --pass private_key_password
-    scp://example.com/~/file.txt
+      scp://example.com/~/file.txt
 
 Get the main page from an IPv6 web server:
 
     curl "http://[2001:1890:1112:1::20]/"
-
-Get a file from an SMB server:
-
-    curl -u "domain\username:passwd" smb://server.example.com/share/file.txt
 
 ## Download to a File
 
@@ -99,8 +95,8 @@ or specify them with the `-u` flag like
 It is like FTP, but you may also want to specify and use SSL-specific options
 for certificates etc.
 
-Note that using `FTPS://` as prefix is the *implicit* way as described in the
-standards while the recommended *explicit* way is done by using `FTP://` and
+Note that using `ftps://` as prefix is the *implicit* way as described in the
+standards while the recommended *explicit* way is done by using `ftp://` and
 the `--ssl-reqd` option.
 
 ### SFTP / SCP
@@ -188,13 +184,13 @@ transfers, and curl's `-v` option to see exactly what curl is sending.
 
 ## Piping
 
-Get a key file and add it with `apt-key` (when on a system that uses `apt` for
-package management):
+Get a key file and install it as a trusted one (when on a system that uses
+`apt` for package management):
 
-    curl -L https://apt.example.org/llvm-snapshot.gpg.key | sudo apt-key add -
+    curl -L https://apt.example.org/llvm-snapshot.gpg.key | sudo tee
+      /etc/apt/trusted.gpg.d/llvm-snapshot.asc >/dev/null
 
-The '|' pipes the output to STDIN. `-` tells `apt-key` that the key file
-should be read from STDIN.
+The '|' pipes the output to stdin. `tee` reads from stdin.
 
 ## Ranges
 
@@ -243,11 +239,6 @@ configured to allow that kind of tunneling. If it does, you can run curl in a
 fashion similar to:
 
     curl --proxytunnel -x proxy:port -T localfile ftp.example.com
-
-### SMB / SMBS
-
-    curl -T file.txt -u "domain\username:passwd"
-      smb://server.example.com/share/
 
 ### HTTP
 
@@ -306,7 +297,7 @@ Post a simple `name` and `phone` guestbook.
 
     curl -d "name=Rafael%20Sagula&phone=3320780" https://www.example.com/guest.cgi
 
-Or automatically [URL encode the data](https://everything.curl.dev/http/post/url-encode).
+Or automatically [URL encode the data](https://everything.curl.dev/http/post/url-encode.html).
 
     curl --data-urlencode "name=Rafael Sagula&phone=3320780"
       https://www.example.com/guest.cgi

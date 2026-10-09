@@ -82,8 +82,10 @@ OpenSSL took over and SSLeay was abandoned.
 
 May: first Debian package.
 
-August: LDAP:// and FILE:// support added. The curl website gets 1300 visits
-weekly. Moved site to curl.haxx.nu.
+August: `ldap://` and `file://` support added. The curl website gets 1300
+visits weekly. Moved site to curl.haxx.nu.
+
+September: started using CVS for source code version control.
 
 September: Released curl 6.0. 15000 lines of code.
 
@@ -124,7 +126,7 @@ deemed "GPL incompatible".)
 March 22: curl supports HTTP 1.1 starting with the release of 7.7. This
 also introduced libcurl's ability to do persistent connections. 24000 lines of
 code. The libcurl major SONAME number was bumped to 2 due to this overhaul.
-The first experimental ftps:// support was added.
+The first experimental `ftps://` support was added.
 
 August: The curl website gets 8000 visits weekly. Curl Corporation contacted
 Daniel to discuss "the name issue". After Daniel's reply, they have never
@@ -172,6 +174,8 @@ December: full-fledged SSL for FTP is supported.
 ## 2004
 
 January: curl 7.11.0 introduced large file support.
+
+March: added asynch name resolves using the c-ares library
 
 June: curl 7.12.0 introduced IDN support. 10 official web mirrors.
 
@@ -241,7 +245,7 @@ March: security vulnerability: libcurl Arbitrary File Access
 
 April: added CMake support
 
-August: security vulnerability: libcurl embedded zero in cert name
+August: security vulnerability: libcurl embedded zero byte in cert name
 
 December: Added support for IMAP, POP3 and SMTP
 
@@ -312,6 +316,8 @@ August: support for HTTP/2 server push
 September: started "everything curl". A separate stand-alone book documenting
 curl and related info in perhaps a more tutorial style rather than a
 reference,
+
+September: initial support for the Public Suffix List for cookies.
 
 December: Public Suffix List
 
@@ -465,7 +471,7 @@ December 21: dropped hyper
 
 ## 2025
 
-February 5: first 0RTT for QUIC, ssl session import/export
+February 5: first 0RTT for QUIC, SSL session import/export
 
 February: experimental HTTPS RR support
 
@@ -497,3 +503,5 @@ December 15: the website served 78 TB over the last month.
 ## 2026
 
 April: removed support for RTMP
+
+September: removed support for SMB

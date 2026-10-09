@@ -4,6 +4,7 @@
 <keywords>
 multi
 HTTPS
+libtest
 </keywords>
 </info>
 
@@ -35,11 +36,8 @@ OpenSSL
 <server>
 https
 </server>
-<tool>
-lib%TESTNUMBER
-</tool>
 <name>
-multi_socket interface transfer with callbacks returning error
+HTTPS multi_socket interface transfer with callbacks returning error
 </name>
 <command>
 https://localhost:%HTTPSPORT/file%TESTNUMBER

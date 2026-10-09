@@ -25,14 +25,6 @@ instead seems to trigger a crash.
 
 See [curl issue 17626](https://github.com/curl/curl/issues/17626)
 
-## Client cert handling with Issuer `DN` differs between backends
-
-When the specified client certificate does not match any of the
-server-specified `DN` fields, the OpenSSL and GnuTLS backends behave
-differently. The GitHub discussion may contain a solution.
-
-See [curl issue 1411](https://github.com/curl/curl/issues/1411)
-
 ## Client cert (MTLS) issues with Schannel
 
 See [curl issue 3145](https://github.com/curl/curl/issues/3145)
@@ -45,10 +37,6 @@ fail, resulting in error SEC_E_BUFFER_TOO_SMALL or SEC_E_MESSAGE_ALTERED.
 
 [curl issue 5488](https://github.com/curl/curl/issues/5488)
 
-## `CURLOPT_CERTINFO` results in `CURLE_OUT_OF_MEMORY` with Schannel
-
-[curl issue 8741](https://github.com/curl/curl/issues/8741)
-
 ## mbedTLS and CURLE_AGAIN handling
 
 [curl issue 15801](https://github.com/curl/curl/issues/15801)
@@ -59,6 +47,10 @@ Certain Windows installations may be missing CA roots.
 
 [curl issue 20897](https://github.com/curl/curl/issues/20897)
 [curl issue 12303](https://github.com/curl/curl/issues/12303)
+
+## ECH not working through Proxy Tunnels
+
+[curl issue 22043](https://github.com/curl/curl/issues/22043)
 
 # Email protocols
 
@@ -113,21 +105,6 @@ would do if you used `-T` file.
 
 See [curl issue 12171](https://github.com/curl/curl/issues/12171)
 
-## Windows stdin relay accepts unauthenticated local connections
-
-curl features a Windows-only stdin relay in `src/tool_doswin.c` that creates a
-loopback TCP listener and spawns a thread to accept the first incoming
-connection, then forwards stdin to it. There is no authentication or peer
-validation on the accepted socket. A local attacker can race to connect to the
-ephemeral loopback port (discoverable via local port enumeration/scan) before
-curl connects, causing the thread to send stdin/upload data to the attacker or
-to disrupt the transfer.
-
-The function should verify the client-side with a random number similar to the
-socketpair emulation function in libcurl. It cannot verify the source address
-and port since there is this widespread habit on Windows to run tools that
-MITM even local TCP connections for security.
-
 # Build and portability issues
 
 ## OS400 port requires deprecated IBM library
@@ -137,12 +114,6 @@ libc/POSIX functions in the ILE, but IBM no longer supports or even offers
 this library to download.
 
 See [curl issue 5176](https://github.com/curl/curl/issues/5176)
-
-## `curl-config --libs` contains private details
-
-`curl-config --libs` include details set in `LDFLAGS` when configure is run
-that might be needed only for building libcurl. Further, `curl-config
---cflags` suffers from the same effects with `CFLAGS`/`CPPFLAGS`.
 
 ## `LDFLAGS` passed too late making libs linked incorrectly
 
@@ -219,28 +190,33 @@ https://curl.se/mail/lib-2012-07/0073.html
 
 # Authentication
 
+## `--aws-sigv4` signs an empty payload hash for bodies not held in memory
+
+`--aws-sigv4` hashes only the in-memory POST fields when it computes the payload hash, so a request
+whose body comes from anywhere else is signed as if it had no body at all: the signature is
+computed over `SHA256("")` while a different body goes on the wire. This affects `-F`
+(multipart/form-data) and `-T` (PUT upload) alike.
+
+`aws:amz:<region>:s3` is not affected, because it sends and signs `UNSIGNED-PAYLOAD` instead. Every
+other service gets the empty hash, with no `x-amz-content-sha256` header sent, and no warning.
+
+[curl issue 13351](https://github.com/curl/curl/issues/13351)
+
 ## Digest `auth-int` for PUT/POST
 
 We do not support auth-int for Digest using PUT or POST
+
+## Digest does not care for `domain`
+
+libcurl ignores the `domain` directive in Digest authentication challenges
+(`WWW-Authenticate:`). RFC 7616 defines it as a quoted, space-separated list
+of URIs that define the protection space.
 
 ## MIT Kerberos for Windows build
 
 libcurl fails to build with MIT Kerberos for Windows (`KfW`) due to its
 library header files exporting symbols/macros that should be kept private to
 the library.
-
-## NTLM in system context uses wrong name
-
-NTLM authentication using SSPI (on Windows) when (lib)curl is running in
-"system context" makes it use wrong(?) username - at least when compared to
-what `winhttp` does. See https://curl.se/bug/view.cgi?id=535
-
-## NTLM does not support password with Unicode 'SECTION SIGN' character
-
-Code point: U+00A7
-
-https://en.wikipedia.org/wiki/Section_sign
-[curl issue 2120](https://github.com/curl/curl/issues/2120)
 
 ## libcurl can fail to try alternatives with `--proxy-any`
 
@@ -268,24 +244,6 @@ Microsoft does not document supported digest algorithms and that `SEC_E` error
 code is not a documented error for `InitializeSecurityContext` (digest).
 
 [curl issue 6302](https://github.com/curl/curl/issues/6302)
-
-## curl never completes Negotiate over HTTP
-
-Apparently it is not working correctly...?
-
-See [curl issue 5235](https://github.com/curl/curl/issues/5235)
-
-## Negotiate on Windows fails
-
-When using `--negotiate` (or NTLM) with curl on Windows, SSL/TLS handshake
-fails despite having a valid kerberos ticket cached. Works without any issue
-in Unix/Linux.
-
-[curl issue 5881](https://github.com/curl/curl/issues/5881)
-
-## Negotiate authentication against Hadoop
-
-[curl issue 8264](https://github.com/curl/curl/issues/8264)
 
 # FTP
 
@@ -391,13 +349,6 @@ The struct needs to be expanded and code added to store this info.
 
 See [curl issue 13492](https://github.com/curl/curl/issues/13492)
 
-## error buffer not set if connection to multiple addresses fails
-
-If you ask libcurl to resolve a hostname like example.com to IPv6 addresses
-when you only have IPv4 connectivity. libcurl fails with
-`CURLE_COULDNT_CONNECT`, but the error buffer set by `CURLOPT_ERRORBUFFER`
-remains empty. Issue: [curl issue 544](https://github.com/curl/curl/issues/544)
-
 ## HTTP test server 'connection-monitor' problems
 
 The `connection-monitor` feature of the HTTP test server does not work
@@ -422,7 +373,7 @@ See [curl issue 13350](https://github.com/curl/curl/issues/13350)
 ## `CURLOPT_CONNECT_TO` does not work for HTTPS proxy
 
 It is unclear if the same option should even cover the proxy connection or if
-if requires a separate option.
+it requires a separate option.
 
 See [curl issue 14481](https://github.com/curl/curl/issues/14481)
 
@@ -490,42 +441,6 @@ then subsequently fails anyway if that was actually in use.
 
 [curl issue 8112](https://github.com/curl/curl/issues/8112)
 
-# CMake
-
-## cmake outputs: no version information available
-
-Something in the SONAME generation seems to be wrong in the cmake build.
-
-[curl issue 11158](https://github.com/curl/curl/issues/11158)
-
-## uses `-lpthread` instead of `Threads::Threads`
-
-See [curl issue 6166](https://github.com/curl/curl/issues/6166)
-
-## generated `.pc` file contains strange entries
-
-The `Libs.private` field of the generated `.pc` file contains `-lgcc -lgcc_s
--lc -lgcc -lgcc_s`.
-
-See [curl issue 6167](https://github.com/curl/curl/issues/6167)
-
-## CMake build with MIT Kerberos does not work
-
-Minimum CMake version was bumped in curl 7.71.0 (#5358) Since CMake 3.2
-try_compile started respecting the `CMAKE_EXE_FLAGS`. The code dealing with
-MIT Kerberos detection sets few variables to potentially weird mix of space,
-and ;-separated flags. It had to blow up at some point. All the CMake checks
-that involve compilation are doomed from that point, the configured tree
-cannot be built.
-
-[curl issue 6904](https://github.com/curl/curl/issues/6904)
-
-# Authentication
-
-## `--aws-sigv4` does not handle multipart/form-data correctly
-
-[curl issue 13351](https://github.com/curl/curl/issues/13351)
-
 # HTTP/2
 
 ## HTTP/2 prior knowledge over proxy
@@ -570,13 +485,3 @@ See https://curl.se/mail/lib-2024-05/0026.html and
 The transfer ends with error "QUIC connection is draining".
 
 [curl issue 12037](https://github.com/curl/curl/issues/12037)
-
-# RTSP
-
-## Some methods do not support response bodies
-
-The RTSP implementation is written to assume that a number of RTSP methods
-always get responses without bodies, even though there seems to be no
-indication in the RFC that this is always the case.
-
-[curl issue 12414](https://github.com/curl/curl/issues/12414)

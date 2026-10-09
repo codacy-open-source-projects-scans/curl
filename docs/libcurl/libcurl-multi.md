@@ -175,8 +175,10 @@ A few areas in the code are still using blocking code, even when used from the
 multi interface. While we certainly want and intend for these to get fixed in
 the future, you should be aware of the following current restrictions:
 
-~~~c
 - Name resolves unless the c-ares or threaded-resolver backends are used
-- file:// transfers
+- `file://` transfers
 - TELNET transfers
-~~~
+- FTP, IMAP, SMTP, SCP and SFTP wait for the final server response before the
+transfer is reported as done
+- FTP, IMAP, POP3, SMTP, SCP and SFTP can block during protocol-specific
+shutdown when a connection is closed instead of kept for reuse
